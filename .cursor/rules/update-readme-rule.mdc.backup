@@ -1,0 +1,8 @@
+---
+description: Everytime code is updated to a large extent or we try to delete things
+globs: 
+alwaysApply: false
+---
+Cursor shall always update the README.md as detailed function descriptions, explain what our program can achieve after we change any function. 
+
+*Don't ever delete my README_AI_Testing_Final.md as markdown file for product requirement description
