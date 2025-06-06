@@ -1,0 +1,1598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>�� AI Agent 自动化评估平台 v4.0</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --info-color: #3b82f6;
+            --surface-color: rgba(255, 255, 255, 0.95);
+            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            --border-radius: 12px;
+            --compact-padding: 20px;
+        }
+
+        body {
+            background: var(--primary-gradient);
+            min-height: 100vh;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            line-height: 1.5;
+        }
+
+        .main-container {
+            background: var(--surface-color);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            margin: 20px auto;
+            max-width: 1200px;
+            padding: 30px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .header h1 {
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            font-weight: 700;
+            font-size: 2rem;
+        }
+
+        .header .lead {
+            color: #6b7280;
+            font-size: 1rem;
+            margin-bottom: 5px;
+        }
+
+        .header .subtitle {
+            color: #9ca3af;
+            font-size: 0.85rem;
+        }
+
+        /* Collapsible Card System */
+        .collapsible-card {
+            background: white;
+            border-radius: var(--border-radius);
+            margin-bottom: 20px;
+            border: 1px solid #e5e7eb;
+            box-shadow: var(--card-shadow);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .collapsible-header {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            padding: 15px 20px;
+            cursor: pointer;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .collapsible-header:hover {
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+        }
+
+        .collapsible-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            color: #374151;
+            font-size: 1.1rem;
+        }
+
+        .collapsible-toggle {
+            color: #6b7280;
+            font-size: 1.2rem;
+            transition: transform 0.3s ease;
+        }
+
+        .collapsible-toggle.rotated {
+            transform: rotate(180deg);
+        }
+
+        .collapsible-content {
+            padding: var(--compact-padding);
+            transition: all 0.3s ease;
+        }
+
+        .collapsible-content.collapsed {
+            display: none;
+        }
+
+        /* Compact Info Cards */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .info-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .info-card:hover {
+            border-color: var(--info-color);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+        }
+
+        .info-card.active {
+            border-color: var(--info-color);
+            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+        }
+
+        .info-card i {
+            font-size: 1.8rem;
+            margin-bottom: 8px;
+            color: var(--info-color);
+        }
+
+        .info-card h6 {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #1f2937;
+            font-size: 0.9rem;
+        }
+
+        .info-card small {
+            color: #6b7280;
+            font-size: 0.8rem;
+            line-height: 1.3;
+        }
+
+        /* Compact Form Sections */
+        .config-section {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .config-section h6 {
+            color: #374151;
+            margin-bottom: 15px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Compact Forms */
+        .compact-form .row {
+            margin-bottom: 12px;
+        }
+
+        .compact-form .form-control,
+        .compact-form .form-select {
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .compact-form .form-control:focus,
+        .compact-form .form-select:focus {
+            border-color: var(--info-color);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+        }
+
+        .compact-form .form-label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 4px;
+        }
+
+        /* Compact Alerts */
+        .alert-compact {
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 0.85rem;
+            border: none;
+        }
+
+        .alert-info-compact {
+            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+            color: #1e40af;
+            border-left: 3px solid var(--info-color);
+        }
+
+        .alert-success-compact {
+            background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+            color: #065f46;
+            border-left: 3px solid var(--success-color);
+        }
+
+        .alert-warning-compact {
+            background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+            color: #92400e;
+            border-left: 3px solid var(--warning-color);
+        }
+
+        /* Mode Selection - Inline */
+        .mode-selector {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .mode-option {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .mode-option .form-check {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .mode-option .form-check:hover {
+            border-color: var(--info-color);
+            background: #eff6ff;
+        }
+
+        .mode-option .form-check-input:checked~.form-check-label {
+            color: var(--info-color);
+        }
+
+        /* Compact File Upload */
+        .file-upload-compact {
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            background: #f8fafc;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+            cursor: pointer;
+        }
+
+        .file-upload-compact:hover {
+            border-color: var(--info-color);
+            background: #eff6ff;
+        }
+
+        .file-upload-compact i {
+            font-size: 1.5rem;
+            color: #6b7280;
+            margin-bottom: 8px;
+        }
+
+        .file-upload-compact h6 {
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        .file-upload-compact p {
+            font-size: 0.8rem;
+            margin-bottom: 0;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: var(--primary-gradient);
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-weight: 500;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary:hover {
+            background: #e2e8f0;
+            color: #334155;
+        }
+
+        /* Results Section - Compact */
+        .results-section {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: var(--card-shadow);
+        }
+
+        .dimension-card {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            transition: all 0.3s ease;
+            height: 100%;
+        }
+
+        .dimension-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .overall-score {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .star-rating {
+            color: #fbbf24;
+            font-size: 1.1rem;
+            margin: 10px 0;
+            letter-spacing: 1px;
+        }
+
+        /* Conversation Display - Collapsible */
+        .conversation-section {
+            background: #f8fafc;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .conversation-header {
+            padding: 12px 15px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .conversation-header:hover {
+            background: #f1f5f9;
+        }
+
+        .conversation-content {
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .conversation-turn {
+            background: white;
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-left: 3px solid var(--info-color);
+            font-size: 0.85rem;
+        }
+
+        .user-message {
+            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+            border-left-color: var(--info-color);
+        }
+
+        .ai-response {
+            background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+            border-left-color: var(--success-color);
+        }
+
+        /* Loading */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            backdrop-filter: blur(5px);
+        }
+
+        .loading-content {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            max-width: 300px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        .spinner-custom {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #e5e7eb;
+            border-top: 3px solid var(--info-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .main-container {
+                margin: 10px;
+                padding: 20px;
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .mode-selector {
+                flex-direction: column;
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="main-container">
+            <!-- Header -->
+            <div class="header">
+                <h1><i class="fas fa-brain"></i> AI Agent 自动化评估平台</h1>
+                <p class="lead">基于DeepSeek智能引擎的专业AI代理评估系统</p>
+                <p class="subtitle">支持多平台API • 文档智能解析 • 4维度评估框架 • 工作流兼容</p>
+            </div>
+
+            <!-- AI Type Selection - Collapsible -->
+            <div class="collapsible-card">
+                <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                    <div class="collapsible-title">
+                        <i class="fas fa-lightbulb"></i>
+                        AI系统信息指南
+                    </div>
+                    <i class="fas fa-chevron-down collapsible-toggle"></i>
+                </div>
+                <div class="collapsible-content">
+                    <div class="info-grid">
+                        <div class="info-card" data-type="coze-agent" onclick="selectAIType(event)">
+                            <i class="fas fa-robot"></i>
+                            <h6>Coze AI Agent</h6>
+                            <small>智能代理，支持工具调用</small>
+                        </div>
+                        <div class="info-card" data-type="coze-bot" onclick="selectAIType(event)">
+                            <i class="fas fa-comments"></i>
+                            <h6>Coze Bot</h6>
+                            <small>传统聊天机器人</small>
+                        </div>
+                        <div class="info-card" data-type="custom-api" onclick="selectAIType(event)">
+                            <i class="fas fa-code"></i>
+                            <h6>自定义 API</h6>
+                            <small>其他AI服务</small>
+                        </div>
+                    </div>
+                    <div class="alert-info-compact">
+                        <strong><i class="fas fa-comment-dots"></i> 沟通话术：</strong>
+                        "我需要测试你们的AI系统性能，能提供一下相关的配置信息吗？"
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Form -->
+            <form id="evaluationForm" enctype="multipart/form-data" class="compact-form">
+
+                <!-- AI Configuration - Collapsible -->
+                <div class="collapsible-card">
+                    <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                        <div class="collapsible-title">
+                            <i class="fas fa-cog"></i>
+                            AI系统配置
+                        </div>
+                        <i class="fas fa-chevron-down collapsible-toggle"></i>
+                    </div>
+                    <div class="collapsible-content">
+                        <!-- Coze Agent Config -->
+                        <div id="cozeAgentConfig" class="config-section">
+                            <h6><i class="fas fa-robot"></i> Coze Agent 配置</h6>
+                            <div class="alert-info-compact">
+                                <i class="fas fa-info-circle"></i> 确保Agent已发布且处于活跃状态
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label for="cozeAgentId" class="form-label">Agent ID *</label>
+                                    <input type="text" class="form-control" id="cozeAgentId" name="cozeAgentId"
+                                        value="7498244859505999924" placeholder="Agent唯一标识">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="cozeAgentToken" class="form-label">Access Token *</label>
+                                    <input type="password" class="form-control" id="cozeAgentToken"
+                                        name="cozeAgentToken"
+                                        value="pat_DiraOZEjagK8c6NNPJKionQsCj99zZduVyGkYO8YojolSQ8WAjBdF2CgbXNLMaFi"
+                                        placeholder="API访问令牌">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label for="cozeRegion" class="form-label">平台版本</label>
+                                    <select class="form-select" id="cozeRegion" name="cozeRegion">
+                                        <option value="global">Global (coze.com)</option>
+                                        <option value="china" selected>China (coze.cn)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Coze Bot Config -->
+                        <div id="cozeBotConfig" class="config-section" style="display: none;">
+                            <h6><i class="fas fa-comments"></i> Coze Bot 配置</h6>
+                            <div class="alert-success-compact">
+                                <i class="fas fa-check-circle"></i> 已预配置工程规范AI助手
+                            </div>
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <label for="cozeBotIdNew" class="form-label">Bot ID *</label>
+                                    <input type="text" class="form-control" id="cozeBotIdNew" name="cozeBotIdNew"
+                                        value="7511993619423985674" placeholder="Bot唯一标识">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="cozeBotVersion" class="form-label">Bot版本 (可选)</label>
+                                    <input type="text" class="form-control" id="cozeBotVersion" name="cozeBotVersion"
+                                        placeholder="latest">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Custom API Config -->
+                        <div id="customApiConfig" class="config-section" style="display: none;">
+                            <h6><i class="fas fa-code"></i> 自定义 API 配置</h6>
+                            <div class="alert-warning-compact">
+                                <i class="fas fa-code"></i> URL: https://api.openai.com/v1/chat/completions
+                            </div>
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <label for="apiUrl" class="form-label">API URL *</label>
+                                    <input type="url" class="form-control" id="apiUrl" name="apiUrl"
+                                        placeholder="https://api.example.com/chat">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="apiMethod" class="form-label">HTTP方法</label>
+                                    <select class="form-select" id="apiMethod" name="apiMethod">
+                                        <option value="POST" selected>POST</option>
+                                        <option value="GET">GET</option>
+                                        <option value="PUT">PUT</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12">
+                                    <label for="apiHeaders" class="form-label">请求头 (JSON格式)</label>
+                                    <textarea class="form-control" id="apiHeaders" name="apiHeaders" rows="2"
+                                        placeholder='{"Authorization": "Bearer your-token"}'></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Requirement Document -->
+                <div class="section-card">
+                    <h5 class="section-title">
+                        <i class="fas fa-user-tie"></i>
+                        用户画像与需求文档配置
+                    </h5>
+
+                    <!-- Mode Selection -->
+                    <div class="mb-4">
+                        <h6 class="mb-3">
+                            <i class="fas fa-cogs"></i>
+                            选择配置方式
+                        </h6>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="evaluationMode" id="autoMode"
+                                        value="auto">
+                                    <label class="form-check-label" for="autoMode">
+                                        <strong>🤖 智能提取</strong><br>
+                                        <small>自动提取用户画像</small>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="evaluationMode" id="dynamicMode"
+                                        value="dynamic" checked>
+                                    <label class="form-check-label" for="dynamicMode">
+                                        <strong>🗣️ 动态对话</strong><br>
+                                        <small>真实对话流程</small>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="evaluationMode" id="manualMode"
+                                        value="manual">
+                                    <label class="form-check-label" for="manualMode">
+                                        <strong>✋ 手动配置</strong><br>
+                                        <small>自定义场景</small>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Mode Section -->
+                    <div id="dynamicModeSection">
+                        <div class="alert-success-compact">
+                            <i class="fas fa-comments"></i> 上传需求文档，自动提取用户画像，生成2个测试场景
+                        </div>
+
+                        <!-- File Upload -->
+                        <div class="file-upload-compact"
+                            onclick="document.getElementById('dynamicRequirementFile').click()">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <h6>点击上传需求文档</h6>
+                            <p class="text-muted">支持 Word (.docx) • PDF (.pdf) • 文本 (.txt)</p>
+                            <input type="file" class="d-none" id="dynamicRequirementFile" name="dynamicRequirementFile"
+                                accept=".doc,.docx,.pdf,.txt" onchange="handleDynamicFileUpload(this)">
+                        </div>
+
+                        <div id="dynamicFileUploadStatus" style="display: none;" class="alert-success-compact">
+                            <i class="fas fa-file-check"></i> <span id="dynamicUploadedFileName"></span> 已成功上传
+                        </div>
+
+                        <!-- Text Input Alternative -->
+                        <div>
+                            <label for="dynamicRequirementDoc" class="form-label">或直接输入需求文档内容</label>
+                            <textarea class="form-control" id="dynamicRequirementDoc" name="dynamicRequirementDoc"
+                                rows="3" placeholder="例：监理工程师需要AI识别用户模糊描述并主动引导补充面积、位置等字段..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Auto Mode Section -->
+                    <div id="autoModeSection" style="display: none;">
+                        <div class="alert-info-compact">
+                            <i class="fas fa-magic"></i> DeepSeek将自动分析并提取用户角色、使用场景、沟通风格等信息
+                        </div>
+
+                        <div class="file-upload-compact" onclick="document.getElementById('requirementFile').click()">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <h6>上传需求文档</h6>
+                            <p class="text-muted">支持 Word (.docx) • PDF (.pdf) • 文本 (.txt)</p>
+                            <input type="file" class="d-none" id="requirementFile" name="requirementFile"
+                                accept=".doc,.docx,.pdf,.txt" onchange="handleFileUpload(this)">
+                        </div>
+
+                        <div id="fileUploadStatus" style="display: none;" class="alert-success-compact">
+                            <i class="fas fa-file-check"></i> <span id="uploadedFileName"></span> 已成功上传
+                        </div>
+
+                        <div>
+                            <label for="requirementDoc" class="form-label">或直接输入需求文档内容</label>
+                            <textarea class="form-control" id="requirementDoc" name="requirementDoc" rows="3"
+                                placeholder="输入详细的需求文档内容..."></textarea>
+                        </div>
+
+                        <button type="button" class="btn btn-secondary mt-2" onclick="extractPersona()">
+                            <i class="fas fa-user-cog"></i> 提取用户画像
+                        </button>
+                    </div>
+
+                    <!-- Manual Mode Section -->
+                    <div id="manualModeSection" style="display: none;">
+                        <div class="alert-info-compact">
+                            <i class="fas fa-edit"></i> 手动配置用户画像和对话场景
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label for="userRole" class="form-label">用户角色</label>
+                                <input type="text" class="form-control" id="userRole" name="userRole"
+                                    placeholder="如：现场监理工程师">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="experienceLevel" class="form-label">经验水平</label>
+                                <input type="text" class="form-control" id="experienceLevel" name="experienceLevel"
+                                    placeholder="如：5年工程经验">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-12">
+                                <label for="communicationStyle" class="form-label">沟通风格</label>
+                                <input type="text" class="form-control" id="communicationStyle"
+                                    name="communicationStyle" placeholder="如：偏好简洁明了">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Manual Scenarios Section -->
+                <div id="scenariosSection" style="display: none;">
+                    <div class="collapsible-card">
+                        <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                            <div class="collapsible-title">
+                                <i class="fas fa-comments"></i>
+                                对话场景配置
+                            </div>
+                            <i class="fas fa-chevron-down collapsible-toggle"></i>
+                        </div>
+                        <div class="collapsible-content">
+                            <div id="scenariosContainer">
+                                <!-- Default scenario will be added by JavaScript -->
+                            </div>
+                            <button type="button" class="btn btn-secondary" onclick="addScenario()">
+                                <i class="fas fa-plus"></i> 添加场景
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <div class="text-center">
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-play"></i> 开始评估
+                    </button>
+                </div>
+            </form>
+
+            <!-- Results Section -->
+            <div id="resultsSection" class="results-section" style="display: none;">
+                <h4 class="text-center mb-4">
+                    <i class="fas fa-chart-line"></i> 评估结果
+                </h4>
+                <div id="resultsContent">
+                    <!-- Results will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="spinner-custom"></div>
+            <h6 id="loadingText">正在评估中...</h6>
+            <p class="text-muted mb-0" id="loadingSubtext">请稍候，这可能需要几分钟</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let scenarioCounter = 1;
+        let extractedPersonaData = null;
+
+        document.addEventListener('DOMContentLoaded', function () {
+            console.log('🚀 AI Agent评估平台已加载');
+
+            // Initialize form
+            const form = document.getElementById('evaluationForm');
+            form.addEventListener('submit', handleFormSubmit);
+
+            // Prevent form submission on Enter
+            const inputs = form.querySelectorAll('input[type="text"], input[type="url"], input[type="password"]');
+            inputs.forEach(input => {
+                input.addEventListener('keypress', function (e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                    }
+                });
+            });
+
+            // Set default AI type and collapse all sections
+            const firstAICard = document.querySelector('.info-card[data-type="coze-agent"]');
+            if (firstAICard) {
+                selectAIType({ target: firstAICard });
+            }
+
+            // Add mode switching listeners
+            document.getElementById('autoMode').addEventListener('change', toggleEvaluationMode);
+            document.getElementById('manualMode').addEventListener('change', toggleEvaluationMode);
+            document.getElementById('dynamicMode').addEventListener('change', toggleEvaluationMode);
+
+            // Initialize evaluation mode (don't create scenarios yet)
+            toggleEvaluationMode();
+
+            // Collapse all sections by default except the first one
+            const collapsibleHeaders = document.querySelectorAll('.collapsible-header');
+            collapsibleHeaders.forEach((header, index) => {
+                if (index > 0) { // Keep first section open
+                    toggleCollapsible(header, true);
+                }
+            });
+        });
+
+        // Collapsible functionality
+        function toggleCollapsible(header, forceClose = false) {
+            const content = header.nextElementSibling;
+            const toggle = header.querySelector('.collapsible-toggle');
+
+            if (forceClose || !content.classList.contains('collapsed')) {
+                content.classList.add('collapsed');
+                toggle.classList.remove('rotated');
+            } else {
+                content.classList.remove('collapsed');
+                toggle.classList.add('rotated');
+            }
+        }
+
+        function selectAIType(eventOrElement) {
+            let targetElement;
+            if (eventOrElement && eventOrElement.target) {
+                targetElement = eventOrElement.target.closest('.info-card');
+            } else if (eventOrElement && eventOrElement.classList) {
+                targetElement = eventOrElement.closest('.info-card');
+            } else {
+                console.error('❌ Invalid argument passed to selectAIType');
+                return;
+            }
+
+            if (!targetElement) {
+                console.error('❌ Could not find info-card element');
+                return;
+            }
+
+            const aiType = targetElement.getAttribute('data-type');
+            console.log('🔧 Selecting AI type:', aiType);
+
+            // Remove all required attributes first
+            document.querySelectorAll('#cozeAgentId, #cozeAgentToken, #cozeBotIdNew, #apiUrl').forEach(input => {
+                input.removeAttribute('required');
+            });
+
+            // Hide all configuration sections
+            document.getElementById('cozeAgentConfig').style.display = 'none';
+            document.getElementById('cozeBotConfig').style.display = 'none';
+            document.getElementById('customApiConfig').style.display = 'none';
+
+            // Remove active states from all cards
+            document.querySelectorAll('.info-card').forEach(card => {
+                card.classList.remove('active');
+            });
+
+            // Show the selected configuration and add required attributes
+            if (aiType === 'coze-agent') {
+                document.getElementById('cozeAgentConfig').style.display = 'block';
+                document.getElementById('cozeAgentId').setAttribute('required', 'required');
+                document.getElementById('cozeAgentToken').setAttribute('required', 'required');
+                console.log('✅ Coze Agent config shown');
+            } else if (aiType === 'coze-bot') {
+                document.getElementById('cozeBotConfig').style.display = 'block';
+                document.getElementById('cozeBotIdNew').setAttribute('required', 'required');
+                console.log('✅ Coze Bot config shown');
+            } else if (aiType === 'custom-api') {
+                document.getElementById('customApiConfig').style.display = 'block';
+                document.getElementById('apiUrl').setAttribute('required', 'required');
+                console.log('✅ Custom API config shown');
+            }
+
+            // Mark the selected card as active
+            targetElement.classList.add('active');
+        }
+
+        function handleFileUpload(input) {
+            if (input.files.length > 0) {
+                const fileName = input.files[0].name;
+                document.getElementById('uploadedFileName').textContent = fileName;
+                document.getElementById('fileUploadStatus').style.display = 'block';
+                console.log('📄 File uploaded:', fileName);
+            }
+        }
+
+        function handleDynamicFileUpload(input) {
+            if (input.files.length > 0) {
+                const fileName = input.files[0].name;
+                document.getElementById('dynamicUploadedFileName').textContent = fileName;
+                document.getElementById('dynamicFileUploadStatus').style.display = 'block';
+                console.log('📄 Dynamic file uploaded:', fileName);
+            }
+        }
+
+        function addDefaultScenario() {
+            const container = document.getElementById('scenariosContainer');
+            const scenarioHtml = `
+                <div class="scenario-card config-section" data-scenario="1">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0">
+                            <i class="fas fa-comments"></i>
+                            场景 1: 默认场景
+                        </h6>
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeScenario(1)">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label class="form-label">场景标题</label>
+                            <input type="text" class="form-control" name="scenarioTitle1" 
+                                   value="默认测试场景" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">业务上下文</label>
+                            <input type="text" class="form-control" name="scenarioContext1" 
+                                   placeholder="如：建筑工地、桥梁现场等">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <label class="form-label">用户画像</label>
+                            <input type="text" class="form-control" name="scenarioProfile1" 
+                                   placeholder="如：新手施工员、经验监理等">
+                        </div>
+                    </div>
+                    
+                    <label class="form-label">对话轮次 (用户发言)</label>
+                    <div class="conversation-turns">
+                        <input type="text" class="form-control mb-2" name="scenarioTurn1_1" 
+                               placeholder="第1轮用户发言" required>
+                        <input type="text" class="form-control mb-2" name="scenarioTurn1_2" 
+                               placeholder="第2轮用户发言">
+                        <input type="text" class="form-control" name="scenarioTurn1_3" 
+                               placeholder="第3轮用户发言">
+                    </div>
+                </div>
+            `;
+            container.innerHTML = scenarioHtml;
+        }
+
+        function addScenario() {
+            scenarioCounter++;
+            const container = document.getElementById('scenariosContainer');
+
+            const scenarioHtml = `
+                <div class="scenario-card config-section" data-scenario="${scenarioCounter}">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0">
+                            <i class="fas fa-comments"></i>
+                            场景 ${scenarioCounter}: 自定义场景
+                        </h6>
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeScenario(${scenarioCounter})">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label class="form-label">场景标题</label>
+                            <input type="text" class="form-control" name="scenarioTitle${scenarioCounter}" 
+                                   value="自定义场景 ${scenarioCounter}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">业务上下文</label>
+                            <input type="text" class="form-control" name="scenarioContext${scenarioCounter}" 
+                                   placeholder="如：建筑工地、桥梁现场等">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <label class="form-label">用户画像</label>
+                            <input type="text" class="form-control" name="scenarioProfile${scenarioCounter}" 
+                                   placeholder="如：新手施工员、经验监理等">
+                        </div>
+                    </div>
+                    
+                    <label class="form-label">对话轮次 (用户发言)</label>
+                    <div class="conversation-turns">
+                        <input type="text" class="form-control mb-2" name="scenarioTurn${scenarioCounter}_1" 
+                               placeholder="第1轮用户发言" required>
+                        <input type="text" class="form-control mb-2" name="scenarioTurn${scenarioCounter}_2" 
+                               placeholder="第2轮用户发言">
+                        <input type="text" class="form-control" name="scenarioTurn${scenarioCounter}_3" 
+                               placeholder="第3轮用户发言">
+                    </div>
+                </div>
+            `;
+
+            container.insertAdjacentHTML('beforeend', scenarioHtml);
+
+            // Scroll to the new scenario
+            const newScenario = container.lastElementChild;
+            newScenario.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            console.log(`✅ Added scenario ${scenarioCounter}`);
+        }
+
+        function removeScenario(scenarioNumber) {
+            const scenarioElement = document.querySelector(`[data-scenario="${scenarioNumber}"]`);
+            if (scenarioElement) {
+                scenarioElement.remove();
+                console.log('🗑️ Removed scenario:', scenarioNumber);
+            }
+        }
+
+        function toggleEvaluationMode() {
+            const autoMode = document.getElementById('autoMode').checked;
+            const dynamicMode = document.getElementById('dynamicMode').checked;
+            const manualMode = document.getElementById('manualMode').checked;
+
+            const autoSection = document.getElementById('autoModeSection');
+            const dynamicSection = document.getElementById('dynamicModeSection');
+            const manualSection = document.getElementById('manualModeSection');
+            const scenariosSection = document.getElementById('scenariosSection');
+
+            // Hide all sections first
+            autoSection.style.display = 'none';
+            dynamicSection.style.display = 'none';
+            manualSection.style.display = 'none';
+            scenariosSection.style.display = 'none';
+
+            // Clear any existing required attributes from scenario fields
+            const scenarioInputs = document.querySelectorAll('input[name^="scenarioTitle"], input[name^="scenarioTurn"]');
+            scenarioInputs.forEach(input => {
+                input.removeAttribute('required');
+            });
+
+            if (autoMode) {
+                autoSection.style.display = 'block';
+                console.log('🤖 Switched to auto extraction mode');
+            } else if (dynamicMode) {
+                dynamicSection.style.display = 'block';
+                console.log('🗣️ Switched to dynamic conversation mode');
+            } else if (manualMode) {
+                manualSection.style.display = 'block';
+                scenariosSection.style.display = 'block';
+
+                // Create default scenario if container is empty
+                const container = document.getElementById('scenariosContainer');
+                if (container.children.length === 0) {
+                    addDefaultScenario();
+                }
+
+                // Add required attributes to visible scenario fields
+                const visibleScenarioInputs = document.querySelectorAll('#scenariosSection input[name^="scenarioTitle"], #scenariosSection input[name*="Turn"][name*="_1"]');
+                visibleScenarioInputs.forEach(input => {
+                    if (input.name.includes('Title') || input.name.includes('Turn') && input.name.endsWith('_1')) {
+                        input.setAttribute('required', 'required');
+                    }
+                });
+
+                console.log('✋ Switched to manual configuration mode');
+            }
+        }
+
+        async function extractPersona() {
+            const fileInput = document.getElementById('requirementFile');
+            const textInput = document.getElementById('requirementDoc');
+
+            if (!fileInput.files.length && !textInput.value.trim()) {
+                alert('请先上传文档或输入文档内容');
+                return;
+            }
+
+            try {
+                showLoading('DeepSeek正在智能分析需求文档...');
+
+                const formData = new FormData();
+                if (fileInput.files.length > 0) {
+                    formData.append('requirement_file', fileInput.files[0]);
+                }
+                if (textInput.value.trim()) {
+                    formData.append('requirement_text', textInput.value.trim());
+                }
+
+                const response = await fetch('/api/extract-user-persona', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+
+                const result = await response.json();
+                extractedPersonaData = result.extraction_result;
+
+                hideLoading();
+                displayExtractedPersona(result);
+
+            } catch (error) {
+                hideLoading();
+                console.error('❌ Persona extraction failed:', error);
+                alert('用户画像提取失败: ' + error.message);
+            }
+        }
+
+        function displayExtractedPersona(result) {
+            // Create a new section to display the extracted persona
+            const personaHtml = `
+                <div class="alert-success-compact mt-3">
+                    <h6><i class="fas fa-user-check"></i> 用户画像提取成功</h6>
+                    <div class="row mt-2">
+                        <div class="col-md-6">
+                            <strong>角色：</strong>${result.extraction_result.user_persona.role}<br>
+                            <strong>经验：</strong>${result.extraction_result.user_persona.experience_level}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>沟通风格：</strong>${result.extraction_result.user_persona.communication_style}<br>
+                            <strong>工作环境：</strong>${result.extraction_result.user_persona.work_environment}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Insert after the extract button
+            const extractButton = document.querySelector('button[onclick="extractPersona()"]');
+            extractButton.insertAdjacentHTML('afterend', personaHtml);
+        }
+
+        async function handleFormSubmit(event) {
+            event.preventDefault();
+            console.log('🚀 Starting evaluation submission...');
+
+            try {
+                showLoading('正在准备评估数据...');
+
+                const formData = new FormData();
+
+                // Get AI configuration
+                const aiConfig = getAIConfiguration();
+                console.log('🔧 AI Config:', aiConfig);
+                formData.append('agent_api_config', JSON.stringify(aiConfig));
+
+                // Determine evaluation mode
+                const evaluationMode = document.getElementById('autoMode').checked ? 'auto' :
+                    document.getElementById('dynamicMode').checked ? 'dynamic' : 'manual';
+                formData.append('evaluation_mode', evaluationMode);
+
+                console.log('📊 Evaluation mode:', evaluationMode);
+
+                // Handle different evaluation modes
+                if (evaluationMode === 'dynamic') {
+                    const fileInput = document.getElementById('dynamicRequirementFile');
+                    const textInput = document.getElementById('dynamicRequirementDoc');
+
+                    if (fileInput.files.length > 0) {
+                        formData.append('requirement_file', fileInput.files[0]);
+                        console.log('📄 Adding dynamic file:', fileInput.files[0].name);
+                    } else if (textInput.value.trim()) {
+                        formData.append('requirement_text', textInput.value.trim());
+                        console.log('📝 Adding dynamic text requirement');
+                    } else {
+                        throw new Error('动态对话模式需要上传文档或输入文档内容');
+                    }
+
+                    updateLoadingProgress('正在提取用户画像并生成动态对话场景...');
+
+                    const response = await fetch('/api/evaluate-agent-dynamic', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                    }
+
+                    const result = await response.json();
+                    console.log('✅ Dynamic evaluation completed:', result);
+
+                    hideLoading();
+                    displayResults(result);
+
+                } else if (evaluationMode === 'auto') {
+                    // Auto mode logic
+                    const fileInput = document.getElementById('requirementFile');
+                    const textInput = document.getElementById('requirementDoc');
+
+                    if (fileInput.files.length > 0) {
+                        formData.append('requirement_file', fileInput.files[0]);
+                    } else if (textInput.value.trim()) {
+                        formData.append('requirement_text', textInput.value.trim());
+                    } else {
+                        throw new Error('智能提取模式需要上传文档或输入文档内容');
+                    }
+
+                    if (extractedPersonaData) {
+                        formData.append('extracted_persona', JSON.stringify(extractedPersonaData));
+                    }
+
+                    updateLoadingProgress('正在进行智能评估...');
+
+                    const response = await fetch('/api/evaluate-agent-auto', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                    }
+
+                    const result = await response.json();
+                    console.log('✅ Auto evaluation completed:', result);
+
+                    hideLoading();
+                    displayResults(result);
+
+                } else {
+                    // Manual mode logic
+                    const scenarios = collectScenariosData();
+                    formData.append('scenarios', JSON.stringify(scenarios));
+
+                    const userRole = document.getElementById('userRole').value;
+                    const experienceLevel = document.getElementById('experienceLevel').value;
+                    const communicationStyle = document.getElementById('communicationStyle').value;
+
+                    const userPersona = {
+                        role: userRole,
+                        experience_level: experienceLevel,
+                        communication_style: communicationStyle
+                    };
+
+                    formData.append('user_persona', JSON.stringify(userPersona));
+
+                    updateLoadingProgress('正在进行手动配置评估...');
+
+                    const response = await fetch('/api/evaluate-agent', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                    }
+
+                    const result = await response.json();
+                    console.log('✅ Manual evaluation completed:', result);
+
+                    hideLoading();
+                    displayResults(result);
+                }
+
+            } catch (error) {
+                hideLoading();
+                console.error('❌ Evaluation failed:', error);
+                alert('评估失败: ' + error.message);
+            }
+        }
+
+        function collectScenariosData() {
+            const scenarios = [];
+            const scenarioElements = document.querySelectorAll('[data-scenario]');
+
+            scenarioElements.forEach(element => {
+                const scenarioNumber = element.getAttribute('data-scenario');
+                const title = document.querySelector(`input[name="scenarioTitle${scenarioNumber}"]`)?.value || '';
+                const context = document.querySelector(`input[name="scenarioContext${scenarioNumber}"]`)?.value || '';
+                const profile = document.querySelector(`input[name="scenarioProfile${scenarioNumber}"]`)?.value || '';
+
+                const turns = [];
+                for (let i = 1; i <= 3; i++) {
+                    const turn = document.querySelector(`input[name="scenarioTurn${scenarioNumber}_${i}"]`)?.value;
+                    if (turn && turn.trim()) {
+                        turns.push(turn.trim());
+                    }
+                }
+
+                if (title && turns.length > 0) {
+                    scenarios.push({
+                        title,
+                        context,
+                        user_profile: profile,
+                        conversation_turns: turns
+                    });
+                }
+            });
+
+            return scenarios;
+        }
+
+        function getAIConfiguration() {
+            if (document.getElementById('cozeAgentConfig').style.display !== 'none') {
+                const agentId = document.getElementById('cozeAgentId').value;
+                const token = document.getElementById('cozeAgentToken').value;
+                const region = document.getElementById('cozeRegion').value;
+
+                if (!agentId || !token) {
+                    throw new Error('请填写完整的 Coze Agent 配置信息');
+                }
+
+                return {
+                    type: 'coze-agent',
+                    url: region === 'global' ? 'https://api.coze.com/open_api/v2/chat' : 'https://api.coze.cn/open_api/v2/chat',
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    agentId: agentId,
+                    region: region,
+                    timeout: 30
+                };
+            } else if (document.getElementById('cozeBotConfig').style.display !== 'none') {
+                const botId = document.getElementById('cozeBotIdNew').value;
+                const botVersion = document.getElementById('cozeBotVersion').value;
+
+                if (!botId) {
+                    throw new Error('请填写 Coze Bot ID');
+                }
+
+                return {
+                    type: 'coze-bot',
+                    url: 'https://api.coze.cn/open_api/v2/chat',
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer pat_aWWxLQe20D8km5FsKt5W99pWL72L5LNxjkontH91q3lqqTU0ExBKUBl1cUy4tm8c',
+                        'Content-Type': 'application/json'
+                    },
+                    botId: botId,
+                    botVersion: botVersion || 'latest',
+                    timeout: 30
+                };
+            } else if (document.getElementById('customApiConfig').style.display !== 'none') {
+                const apiUrl = document.getElementById('apiUrl').value;
+                const apiMethod = document.getElementById('apiMethod').value;
+                const headersText = document.getElementById('apiHeaders').value;
+
+                if (!apiUrl) {
+                    throw new Error('请填写 API URL');
+                }
+
+                let headers = { 'Content-Type': 'application/json' };
+                if (headersText.trim()) {
+                    try {
+                        headers = { ...headers, ...JSON.parse(headersText) };
+                    } catch (e) {
+                        throw new Error('请求头格式错误，请使用有效的 JSON 格式');
+                    }
+                }
+
+                return {
+                    type: 'custom-api',
+                    url: apiUrl,
+                    method: apiMethod,
+                    headers: headers,
+                    timeout: 30
+                };
+            }
+
+            throw new Error('请选择并配置一种AI系统类型');
+        }
+
+        function showLoading(message) {
+            document.getElementById('loadingText').textContent = message;
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function updateLoadingProgress(message) {
+            document.getElementById('loadingText').textContent = message;
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        function generateStarRating(score) {
+            const fullStars = Math.floor(score);
+            const hasHalfStar = score % 1 >= 0.5;
+            const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+
+            return '★'.repeat(fullStars) +
+                (hasHalfStar ? '☆' : '') +
+                '☆'.repeat(emptyStars);
+        }
+
+        function displayResults(data) {
+            const resultsContainer = document.getElementById('resultsContent');
+            const summary = data.evaluation_summary;
+            const records = data.conversation_records || [];
+            const evaluationMode = data.evaluation_mode || 'manual';
+            const userPersonaInfo = data.user_persona_info;
+
+            // Generate overall score visualization
+            const overallScore = summary.overall_score || 0;
+            const starsHtml = generateStarRating(overallScore);
+
+            // Generate dimensions cards
+            const dimensions = summary.dimensions || {};
+            const dimensionCards = Object.entries(dimensions).map(([key, value]) => {
+                const labels = {
+                    'fuzzy_understanding': '🔍 模糊理解',
+                    'answer_correctness': '✅ 回答准确性',
+                    'persona_alignment': '👥 用户匹配',
+                    'goal_alignment': '🎯 目标对齐'
+                };
+
+                const label = labels[key] || key;
+                const stars = generateStarRating(value);
+
+                return `
+                    <div class="col-md-6 col-lg-3 mb-3">
+                        <div class="dimension-card">
+                            <h6>${label}</h6>
+                            <div class="h4 text-primary">${value.toFixed(1)}</div>
+                            <div class="star-rating">${stars}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Generate conversation records with collapsible UI
+            const conversationHtml = records.map((record, index) => {
+                const scenario = record.scenario || {};
+                const history = record.conversation_history || [];
+                const evaluationScores = record.evaluation_scores_with_explanations || record.evaluation_scores || {};
+
+                // Generate conversation content
+                const conversationContent = history.map((turn, turnIndex) => {
+                    const userMessage = turn.user_message || turn.content;
+                    const aiMessage = turn.ai_response || turn.ai_message;
+
+                    return `
+                        <div class="conversation-turn">
+                            <div class="user-message">
+                                <strong>👤 用户 (第${turnIndex + 1}轮):</strong> ${userMessage}
+                            </div>
+                            <div class="ai-response">
+                                <strong>🤖 AI回复:</strong> ${aiMessage}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                // Generate scores with explanations
+                const scoresHtml = Object.entries(evaluationScores).map(([key, scoreData]) => {
+                    const isNewFormat = typeof scoreData === 'object' && scoreData.score !== undefined;
+                    const score = isNewFormat ? scoreData.score : scoreData;
+                    const explanation = isNewFormat ? scoreData.explanation : '暂无详细分析';
+
+                    const labels = {
+                        'fuzzy_understanding': '模糊理解',
+                        'answer_correctness': '回答准确性',
+                        'persona_alignment': '用户匹配',
+                        'goal_alignment': '目标对齐'
+                    };
+
+                    const label = labels[key] || key;
+                    const scoreColor = score >= 4 ? 'success' : score >= 3 ? 'warning' : 'danger';
+
+                    return `
+                        <div class="mb-2">
+                            <div class="d-flex align-items-center mb-1">
+                                <span class="badge bg-${scoreColor} me-2">${label}: ${score}/5</span>
+                                <button class="btn btn-sm btn-outline-info" type="button" onclick="toggleExplanation('explanation-${index}-${key}')">
+                                    <i class="fas fa-info-circle"></i> 详细分析
+                                </button>
+                            </div>
+                            <div id="explanation-${index}-${key}" class="alert-info-compact" style="display: none;">
+                                <small>${explanation}</small>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                const scenarioScore = record.scenario_score || 0;
+
+                return `
+                    <div class="conversation-section">
+                        <div class="conversation-header" onclick="toggleConversation('conversation-${index}')">
+                            <div>
+                                <h6 class="mb-1"><i class="fas fa-comment-dots"></i> ${scenario.title || `场景 ${index + 1}`}</h6>
+                                <small class="text-muted">${history.length} 轮对话 • 得分: ${scenarioScore.toFixed(1)}/5.0</small>
+                            </div>
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div id="conversation-${index}" class="conversation-content" style="display: none;">
+                            <div class="mb-3">
+                                <h6><i class="fas fa-chart-line"></i> 评估维度</h6>
+                                ${scoresHtml}
+                            </div>
+                            <div>
+                                <h6><i class="fas fa-comments"></i> 对话记录</h6>
+                                ${conversationContent}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            resultsContainer.innerHTML = `
+                <!-- Overall Score Section -->
+                <div class="text-center mb-4">
+                    <div class="overall-score">${overallScore.toFixed(1)}</div>
+                    <div class="star-rating">${starsHtml}</div>
+                    <p class="lead">综合评估得分</p>
+                </div>
+
+                <!-- Dimensions Grid -->
+                <div class="row mb-4">
+                    ${dimensionCards}
+                </div>
+
+                <!-- Conversation Records -->
+                <div class="mb-4">
+                    <h5><i class="fas fa-history"></i> 详细评估记录</h5>
+                    ${conversationHtml}
+                </div>
+            `;
+
+            // Show results section
+            document.getElementById('resultsSection').style.display = 'block';
+            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function toggleConversation(conversationId) {
+            const content = document.getElementById(conversationId);
+            const header = content.previousElementSibling;
+            const icon = header.querySelector('.fas');
+
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-up');
+            } else {
+                content.style.display = 'none';
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+            }
+        }
+
+        function toggleExplanation(explanationId) {
+            const element = document.getElementById(explanationId);
+            if (element.style.display === 'none') {
+                element.style.display = 'block';
+            } else {
+                element.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+
+</html>
