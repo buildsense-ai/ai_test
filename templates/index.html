@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>�� AI Agent 自动化评估平台 v4.0</title>
+    <title>🤖 AI Agent 自动化评估平台 v4.0</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -424,6 +425,54 @@
             border-left-color: var(--success-color);
         }
 
+        /* Enhanced Analysis Styles */
+        .detailed-analysis-panel {
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+            border-radius: 8px;
+        }
+
+        .analysis-content,
+        .quotes-content,
+        .suggestions-content {
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .quotes-content {
+            font-style: italic;
+            border-left: 3px solid #17a2b8;
+            padding-left: 10px;
+        }
+
+        .stat-card {
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+
+        .stat-card:hover {
+            transform: scale(1.05);
+        }
+
+        .summary-overview .card {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .conversation-turn {
+            transition: all 0.2s;
+            border-radius: 8px;
+        }
+
+        .conversation-turn:hover {
+            background-color: #f8f9fa;
+            padding: 15px;
+        }
+
+        .message-content {
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
         /* Loading */
         .loading-overlay {
             position: fixed;
@@ -794,9 +843,38 @@
 
             <!-- Results Section -->
             <div id="resultsSection" class="results-section" style="display: none;">
-                <h4 class="text-center mb-4">
-                    <i class="fas fa-chart-line"></i> 评估结果
-                </h4>
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h4 class="mb-0">
+                        <i class="fas fa-chart-line"></i> 评估结果
+                    </h4>
+                    <div class="btn-group" role="group" aria-label="Download options">
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="downloadReport('json')">
+                            <i class="fas fa-download"></i> JSON
+                        </button>
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="downloadReport('txt')">
+                            <i class="fas fa-file-alt"></i> TXT
+                        </button>
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="downloadReport('docx')">
+                            <i class="fas fa-file-word"></i> DOCX
+                        </button>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                                data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-cog"></i> 选项
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <div class="form-check dropdown-item">
+                                        <input class="form-check-input" type="checkbox" id="includeTranscript">
+                                        <label class="form-check-label" for="includeTranscript">
+                                            包含对话记录
+                                        </label>
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
                 <div id="resultsContent">
                     <!-- Results will be populated here -->
                 </div>
@@ -817,6 +895,7 @@
     <script>
         let scenarioCounter = 1;
         let extractedPersonaData = null;
+        let currentEvaluationData = null; // Store evaluation data for download
 
         document.addEventListener('DOMContentLoaded', function () {
             console.log('🚀 AI Agent评估平台已加载');
@@ -1152,18 +1231,107 @@
         }
 
         function displayExtractedPersona(result) {
-            // Create a new section to display the extracted persona
+            // Remove any existing persona display
+            const existingPersona = document.getElementById('extractedPersonaDisplay');
+            if (existingPersona) {
+                existingPersona.remove();
+            }
+
+            const persona = result.extraction_result.user_persona;
+            const usage = result.extraction_result.usage_context;
+            const aiRole = result.extraction_result.ai_role_simulation;
+            const requirements = result.extraction_result.extracted_requirements;
+
+            // Create a comprehensive collapsible section
             const personaHtml = `
-                <div class="alert-success-compact mt-3">
-                    <h6><i class="fas fa-user-check"></i> 用户画像提取成功</h6>
-                    <div class="row mt-2">
-                        <div class="col-md-6">
-                            <strong>角色：</strong>${result.extraction_result.user_persona.role}<br>
-                            <strong>经验：</strong>${result.extraction_result.user_persona.experience_level}
+                <div class="card mt-3" id="extractedPersonaDisplay">
+                    <div class="card-header bg-success text-white">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-check"></i> 
+                                用户画像提取成功
+                            </h6>
+                            <button class="btn btn-sm btn-outline-light" type="button" 
+                                    data-bs-toggle="collapse" data-bs-target="#personaDetails" 
+                                    aria-expanded="false" aria-controls="personaDetails">
+                                <i class="fas fa-chevron-down"></i> 详细信息
+                            </button>
                         </div>
-                        <div class="col-md-6">
-                            <strong>沟通风格：</strong>${result.extraction_result.user_persona.communication_style}<br>
-                            <strong>工作环境：</strong>${result.extraction_result.user_persona.work_environment}
+                    </div>
+                    
+                    <!-- 简要信息 -->
+                    <div class="card-body pb-2">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <strong>角色：</strong><span class="text-primary">${persona.role}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>业务领域：</strong><span class="text-info">${usage.business_domain}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>经验水平：</strong><span class="text-warning">${persona.experience_level}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>沟通风格：</strong><span class="text-secondary">${persona.communication_style}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 详细信息（可折叠） -->
+                    <div class="collapse" id="personaDetails">
+                        <div class="card-body border-top">
+                            <div class="row">
+                                <!-- 用户画像详情 -->
+                                <div class="col-md-6">
+                                    <h6 class="text-primary"><i class="fas fa-user"></i> 用户画像</h6>
+                                    <ul class="list-unstyled small">
+                                        <li><strong>工作环境：</strong> ${persona.work_environment}</li>
+                                        <li><strong>工作压力：</strong> ${persona.work_pressure}</li>
+                                        <li><strong>专业领域：</strong> ${persona.expertise_areas ? persona.expertise_areas.join(', ') : '通用专业'}</li>
+                                    </ul>
+                                </div>
+                                
+                                <!-- 使用场景 -->
+                                <div class="col-md-6">
+                                    <h6 class="text-info"><i class="fas fa-briefcase"></i> 使用场景</h6>
+                                    <ul class="list-unstyled small">
+                                        <li><strong>主要场景：</strong> ${usage.primary_scenarios ? usage.primary_scenarios.join(', ') : '专业咨询'}</li>
+                                        <li><strong>交互目标：</strong> ${usage.interaction_goals ? usage.interaction_goals.join(', ') : '获取准确信息'}</li>
+                                        <li><strong>使用时机：</strong> ${usage.usage_timing ? usage.usage_timing.join(', ') : '工作时间'}</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="row mt-3">
+                                <!-- 对话模拟 -->
+                                <div class="col-md-6">
+                                    <h6 class="text-warning"><i class="fas fa-comments"></i> 对话特征</h6>
+                                    <ul class="list-unstyled small">
+                                        <li><strong>对话方式：</strong> ${aiRole.conversation_approach}</li>
+                                        <li><strong>语言特点：</strong> ${aiRole.language_characteristics}</li>
+                                        <li><strong>典型问题：</strong> ${aiRole.typical_questions ? aiRole.typical_questions.slice(0, 2).join('; ') : '专业咨询'}</li>
+                                    </ul>
+                                </div>
+                                
+                                <!-- 核心需求 -->
+                                <div class="col-md-6">
+                                    <h6 class="text-success"><i class="fas fa-target"></i> 核心需求</h6>
+                                    <ul class="list-unstyled small">
+                                        <li><strong>核心功能：</strong> ${requirements.core_functions ? requirements.core_functions.join(', ') : '准确信息查询'}</li>
+                                        <li><strong>质量期望：</strong> ${requirements.quality_expectations ? requirements.quality_expectations.join(', ') : '准确及时'}</li>
+                                        <li><strong>交互偏好：</strong> ${requirements.interaction_preferences ? requirements.interaction_preferences.join(', ') : '简洁明了'}</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <div class="alert alert-info mb-0">
+                                        <i class="fas fa-lightbulb"></i>
+                                        <strong>智能分析结果：</strong>系统将基于此用户画像自动生成针对性的对话场景，确保评估结果更贴合实际业务需求。
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1172,6 +1340,8 @@
             // Insert after the extract button
             const extractButton = document.querySelector('button[onclick="extractPersona()"]');
             extractButton.insertAdjacentHTML('afterend', personaHtml);
+
+            console.log('✅ 用户画像显示完成:', persona.role);
         }
 
         async function handleFormSubmit(event) {
@@ -1420,45 +1590,192 @@
         }
 
         function generateStarRating(score) {
-            const fullStars = Math.floor(score);
-            const hasHalfStar = score % 1 >= 0.5;
+            // Convert 100-point scale to 5-star scale for display
+            const normalizedScore = score / 20; // 100 -> 5, 80 -> 4, etc.
+            const fullStars = Math.floor(normalizedScore);
+            const hasHalfStar = normalizedScore % 1 >= 0.5;
             const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
 
             return '★'.repeat(fullStars) +
                 (hasHalfStar ? '☆' : '') +
-                '☆'.repeat(emptyStars);
+                '☆'.repeat(Math.max(0, emptyStars));
+        }
+
+        function getScoreGrade(score) {
+            if (score >= 90) return '优秀';
+            if (score >= 80) return '良好';
+            if (score >= 70) return '中等';
+            if (score >= 60) return '及格';
+            if (score >= 50) return '不及格';
+            return '需要改进';
+        }
+
+        function formatAnalysisText(text) {
+            if (!text || text === '暂无详细分析' || text === '暂无具体引用' || text === '暂无改进建议') {
+                return `<span class="text-muted">${text}</span>`;
+            }
+
+            // Clean up common unwanted patterns
+            let cleanText = text.replace(/依据来源：[^\n]*/g, '')
+                .replace(/参考依据：[^\n]*/g, '')
+                .replace(/\n+/g, '<br/>')
+                .trim();
+
+            // Format lists and bullet points
+            cleanText = cleanText.replace(/(\d+\.\s)/g, '<br/>$1')
+                .replace(/(-\s)/g, '<br/>• ');
+
+            return cleanText || `<span class="text-muted">暂无相关信息</span>`;
+        }
+
+        function cleanAiResponse(response) {
+            if (!response) return '暂无回复';
+
+            // Handle JSON formatted responses
+            if (response.includes('"tool_output_content"')) {
+                try {
+                    const match = response.match(/"tool_output_content":\s*"([^"]+)"/);
+                    if (match && match[1]) {
+                        let content = match[1].replace(/\\n/g, ' ').replace(/\\/g, '');
+                        // Extract answer part if exists
+                        if (content.includes('答案：')) {
+                            content = content.split('答案：')[1];
+                        }
+                        return content.trim();
+                    }
+                } catch (e) {
+                    // Fall through to default handling
+                }
+            }
+
+            // Handle stream plugin finish format
+            if (response.includes('"msg_type":"stream_plugin_finish"')) {
+                try {
+                    // Extract meaningful content using regex
+                    const answerMatch = response.match(/答案：([^"\\]+)/);
+                    if (answerMatch && answerMatch[1]) {
+                        return answerMatch[1].trim();
+                    }
+                } catch (e) {
+                    // Fall through to default handling
+                }
+            }
+
+            // Return cleaned response
+            return response.replace(/\\n/g, ' ').replace(/\\/g, '').trim();
         }
 
         function displayResults(data) {
+            // Store evaluation data for download functionality
+            currentEvaluationData = data;
+
             const resultsContainer = document.getElementById('resultsContent');
             const summary = data.evaluation_summary;
             const records = data.conversation_records || [];
             const evaluationMode = data.evaluation_mode || 'manual';
             const userPersonaInfo = data.user_persona_info;
 
-            // Generate overall score visualization
-            const overallScore = summary.overall_score || 0;
-            const starsHtml = generateStarRating(overallScore);
+            // Generate overall score visualization using 100-point scale
+            const overallScore100 = summary.overall_score_100 || (summary.overall_score * 20) || 0;
+            const starsHtml = generateStarRating(overallScore100);
+            const overallGrade = getScoreGrade(overallScore100);
+            const overallColor = overallScore100 >= 80 ? 'success' : overallScore100 >= 60 ? 'warning' : 'danger';
 
-            // Generate dimensions cards
-            const dimensions = summary.dimensions || {};
+            // Generate comprehensive summary section
+            const totalScenarios = summary.total_scenarios || records.length || 0;
+            const totalConversations = summary.total_conversations || 0;
+            const personaRole = userPersonaInfo?.user_persona?.role || '专业用户';
+            const businessDomain = userPersonaInfo?.usage_context?.business_domain || '专业服务';
+
+            const summarySection = `
+                <div class="summary-overview mb-4">
+                    <div class="card border-${overallColor}">
+                        <div class="card-header bg-${overallColor} text-white">
+                            <h4 class="mb-0">
+                                <i class="fas fa-chart-pie"></i> 
+                                AI Agent 评估综合报告
+                                <span class="badge bg-light text-dark ms-2">${overallScore100.toFixed(1)}/100</span>
+                                <span class="badge bg-secondary">${overallGrade}</span>
+                            </h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="row mb-3">
+                                <div class="col-md-3">
+                                    <div class="stat-card text-center p-3 bg-light rounded">
+                                        <div class="h3 text-primary mb-1">${totalScenarios}</div>
+                                        <div class="small text-muted">评估场景</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="stat-card text-center p-3 bg-light rounded">
+                                        <div class="h3 text-info mb-1">${totalConversations}</div>
+                                        <div class="small text-muted">对话轮次</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="stat-card text-center p-3 bg-light rounded">
+                                        <div class="h3 text-warning mb-1">4</div>
+                                        <div class="small text-muted">评估维度</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="stat-card text-center p-3 bg-light rounded">
+                                        <div class="h3 text-${overallColor} mb-1">${overallScore100.toFixed(0)}</div>
+                                        <div class="small text-muted">综合得分</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="info-section">
+                                        <h6><i class="fas fa-user-tie"></i> 用户画像匹配</h6>
+                                        <div class="small mb-2">
+                                            <span class="badge bg-primary">${personaRole}</span>
+                                            <span class="badge bg-info">${businessDomain}</span>
+                                        </div>
+                                        <p class="small text-muted">基于提取的用户画像进行个性化评估，确保测试场景贴合实际业务需求</p>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="info-section">
+                                        <h6><i class="fas fa-bullseye"></i> 业务目标达成</h6>
+                                        <p class="small text-muted">完成多维度动态对话评估，覆盖模糊理解、回答准确性、用户匹配度和目标对齐度四个核心维度</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Generate dimensions cards using 100-point scale
+            const dimensions = summary.dimension_scores_100 || summary.dimension_scores || {};
             const dimensionCards = Object.entries(dimensions).map(([key, value]) => {
                 const labels = {
-                    'fuzzy_understanding': '🔍 模糊理解',
-                    'answer_correctness': '✅ 回答准确性',
-                    'persona_alignment': '👥 用户匹配',
-                    'goal_alignment': '🎯 目标对齐'
+                    'fuzzy_understanding': '🔍 模糊理解与追问能力',
+                    'answer_correctness': '✅ 回答准确性与专业性',
+                    'persona_alignment': '👥 用户匹配度',
+                    'goal_alignment': '🎯 目标对齐度'
                 };
 
                 const label = labels[key] || key;
-                const stars = generateStarRating(value);
+                // Convert to 100-point scale if needed
+                const score100 = value <= 5 ? value * 20 : value;
+                const scoreGrade = getScoreGrade(score100);
+                const color = score100 >= 80 ? 'success' : score100 >= 60 ? 'warning' : 'danger';
+                const stars = generateStarRating(score100);
 
                 return `
                     <div class="col-md-6 col-lg-3 mb-3">
-                        <div class="dimension-card">
-                            <h6>${label}</h6>
-                            <div class="h4 text-primary">${value.toFixed(1)}</div>
-                            <div class="star-rating">${stars}</div>
+                        <div class="card border-${color} h-100">
+                            <div class="card-body text-center">
+                                <h6 class="card-title text-${color}">${label}</h6>
+                                <div class="h2 text-${color} mb-2">${score100.toFixed(1)}</div>
+                                <div class="small text-muted mb-2">/ 100</div>
+                                <div class="star-rating mb-2">${stars}</div>
+                                <span class="badge bg-${color}">${scoreGrade}</span>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -1470,18 +1787,26 @@
                 const history = record.conversation_history || [];
                 const evaluationScores = record.evaluation_scores_with_explanations || record.evaluation_scores || {};
 
-                // Generate conversation content
+                // Generate conversation content with cleaned responses
                 const conversationContent = history.map((turn, turnIndex) => {
                     const userMessage = turn.user_message || turn.content;
-                    const aiMessage = turn.ai_response || turn.ai_message;
+                    const aiMessage = cleanAiResponse(turn.ai_response || turn.ai_message || '');
 
                     return `
-                        <div class="conversation-turn">
-                            <div class="user-message">
-                                <strong>👤 用户 (第${turnIndex + 1}轮):</strong> ${userMessage}
+                        <div class="conversation-turn mb-3 border-start border-3 border-primary ps-3">
+                            <div class="user-message mb-2">
+                                <div class="d-flex align-items-center mb-1">
+                                    <i class="fas fa-user text-primary me-2"></i>
+                                    <strong>用户 (第${turn.turn || turnIndex + 1}轮)</strong>
+                                </div>
+                                <div class="message-content bg-light p-2 rounded">${userMessage}</div>
                             </div>
                             <div class="ai-response">
-                                <strong>🤖 AI回复:</strong> ${aiMessage}
+                                <div class="d-flex align-items-center mb-1">
+                                    <i class="fas fa-robot text-success me-2"></i>
+                                    <strong>AI回复</strong>
+                                </div>
+                                <div class="message-content">${aiMessage}</div>
                             </div>
                         </div>
                     `;
@@ -1489,9 +1814,22 @@
 
                 // Generate scores with explanations
                 const scoresHtml = Object.entries(evaluationScores).map(([key, scoreData]) => {
-                    const isNewFormat = typeof scoreData === 'object' && scoreData.score !== undefined;
-                    const score = isNewFormat ? scoreData.score : scoreData;
-                    const explanation = isNewFormat ? scoreData.explanation : '暂无详细分析';
+                    // Handle both old and new data formats
+                    let score, detailedAnalysis, specificQuotes, improvementSuggestions;
+
+                    if (typeof scoreData === 'object' && scoreData.score !== undefined) {
+                        // New format with structured data
+                        score = scoreData.score;
+                        detailedAnalysis = scoreData.detailed_analysis || scoreData.explanation || '暂无详细分析';
+                        specificQuotes = scoreData.specific_quotes || '暂无具体引用';
+                        improvementSuggestions = scoreData.improvement_suggestions || '暂无改进建议';
+                    } else {
+                        // Legacy format
+                        score = scoreData;
+                        detailedAnalysis = '暂无详细分析';
+                        specificQuotes = '暂无具体引用';
+                        improvementSuggestions = '暂无改进建议';
+                    }
 
                     const labels = {
                         'fuzzy_understanding': '模糊理解',
@@ -1501,31 +1839,47 @@
                     };
 
                     const label = labels[key] || key;
-                    const scoreColor = score >= 4 ? 'success' : score >= 3 ? 'warning' : 'danger';
+                    // Use 100-point scale for color determination
+                    const scoreColor = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
 
                     return `
-                        <div class="mb-2">
-                            <div class="d-flex align-items-center mb-1">
-                                <span class="badge bg-${scoreColor} me-2">${label}: ${score}/5</span>
+                        <div class="mb-3">
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="badge bg-${scoreColor} me-2">${label}: ${score}/100</span>
                                 <button class="btn btn-sm btn-outline-info" type="button" onclick="toggleExplanation('explanation-${index}-${key}')">
                                     <i class="fas fa-info-circle"></i> 详细分析
                                 </button>
                             </div>
-                            <div id="explanation-${index}-${key}" class="alert-info-compact" style="display: none;">
-                                <small>${explanation}</small>
+                            <div id="explanation-${index}-${key}" class="card card-body detailed-analysis-panel" style="display: none;">
+                                <div class="analysis-section mb-3">
+                                    <h6 class="text-primary"><i class="fas fa-chart-line"></i> 详细分析</h6>
+                                    <div class="analysis-content">${formatAnalysisText(detailedAnalysis)}</div>
+                                </div>
+                                <hr/>
+                                <div class="quotes-section mb-3">
+                                    <h6 class="text-info"><i class="fas fa-quote-left"></i> 具体引用</h6>
+                                    <div class="quotes-content bg-light p-2 rounded">${formatAnalysisText(specificQuotes)}</div>
+                                </div>
+                                <hr/>
+                                <div class="suggestions-section mb-0">
+                                    <h6 class="text-warning"><i class="fas fa-lightbulb"></i> 改进建议</h6>
+                                    <div class="suggestions-content">${formatAnalysisText(improvementSuggestions)}</div>
+                                </div>
                             </div>
                         </div>
                     `;
                 }).join('');
 
-                const scenarioScore = record.scenario_score || 0;
+                // Use 100-point scale for scenario score
+                const scenarioScore100 = record.scenario_score_100 || (record.scenario_score * 20) || 0;
+                const scoreGrade = getScoreGrade(scenarioScore100);
 
                 return `
                     <div class="conversation-section">
                         <div class="conversation-header" onclick="toggleConversation('conversation-${index}')">
                             <div>
                                 <h6 class="mb-1"><i class="fas fa-comment-dots"></i> ${scenario.title || `场景 ${index + 1}`}</h6>
-                                <small class="text-muted">${history.length} 轮对话 • 得分: ${scenarioScore.toFixed(1)}/5.0</small>
+                                <small class="text-muted">${history.length} 轮对话 • 得分: ${scenarioScore100.toFixed(1)}/100 (${scoreGrade})</small>
                             </div>
                             <i class="fas fa-chevron-down"></i>
                         </div>
@@ -1543,22 +1897,103 @@
                 `;
             }).join('');
 
+            // Generate persona display section if available
+            let personaDisplayHtml = '';
+            if (userPersonaInfo && userPersonaInfo.extracted_persona_summary) {
+                const persona = userPersonaInfo.extracted_persona_summary.user_persona || {};
+                const usage = userPersonaInfo.extracted_persona_summary.usage_context || {};
+
+                personaDisplayHtml = `
+                    <!-- User Persona Section -->
+                    <div class="mb-4">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-user-cog"></i> 
+                                        提取的用户画像与上下文信息
+                                    </h6>
+                                    <button class="btn btn-sm btn-outline-light" type="button" 
+                                            onclick="togglePersonaDetails()" id="personaToggleBtn">
+                                        <i class="fas fa-chevron-down"></i> 查看详细
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Compact Summary -->
+                            <div class="card-body pb-2">
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <strong>用户角色：</strong><span class="text-primary">${persona.role || '通用用户'}</span>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>业务领域：</strong><span class="text-info">${usage.business_domain || '通用服务'}</span>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>经验水平：</strong><span class="text-warning">${persona.experience_level || '标准'}</span>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>沟通风格：</strong><span class="text-secondary">${persona.communication_style || '专业沟通'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Detailed Information (Collapsible) -->
+                            <div id="personaDetailsContent" class="collapse">
+                                <div class="card-body border-top">
+                                    <div class="row">
+                                        <!-- User Persona Details -->
+                                        <div class="col-md-6">
+                                            <h6 class="text-primary"><i class="fas fa-user"></i> 用户画像详情</h6>
+                                            <ul class="list-unstyled small">
+                                                <li><strong>工作环境：</strong> ${persona.work_environment || '标准办公环境'}</li>
+                                                <li><strong>工作压力：</strong> ${persona.work_pressure || '中等工作压力'}</li>
+                                                <li><strong>专业领域：</strong> ${persona.expertise_areas ? persona.expertise_areas.join(', ') : '通用专业'}</li>
+                                            </ul>
+                                        </div>
+                                        
+                                        <!-- Usage Context -->
+                                        <div class="col-md-6">
+                                            <h6 class="text-info"><i class="fas fa-briefcase"></i> 使用场景</h6>
+                                            <ul class="list-unstyled small">
+                                                <li><strong>主要场景：</strong> ${usage.primary_scenarios ? usage.primary_scenarios.join(', ') : '专业咨询'}</li>
+                                                <li><strong>交互目标：</strong> ${usage.interaction_goals ? usage.interaction_goals.slice(0, 3).join(', ') : '获取准确信息'}</li>
+                                                <li><strong>使用时机：</strong> ${usage.usage_timing ? usage.usage_timing.join(', ') : '工作时间'}</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="row mt-3">
+                                        <div class="col-12">
+                                            <div class="alert alert-light mb-0">
+                                                <i class="fas fa-lightbulb text-warning"></i>
+                                                <strong>智能分析结果：</strong>系统基于此用户画像生成针对性的对话场景，确保评估结果更贴合实际业务需求。
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
             resultsContainer.innerHTML = `
-                <!-- Overall Score Section -->
-                <div class="text-center mb-4">
-                    <div class="overall-score">${overallScore.toFixed(1)}</div>
-                    <div class="star-rating">${starsHtml}</div>
-                    <p class="lead">综合评估得分</p>
-                </div>
+                <!-- Comprehensive Summary Section -->
+                ${summarySection}
+
+                <!-- User Persona Display -->
+                ${personaDisplayHtml}
 
                 <!-- Dimensions Grid -->
                 <div class="row mb-4">
+                    <h5><i class="fas fa-chart-bar"></i> 各维度详细评分</h5>
                     ${dimensionCards}
                 </div>
 
                 <!-- Conversation Records -->
                 <div class="mb-4">
-                    <h5><i class="fas fa-history"></i> 详细评估记录</h5>
+                    <h5><i class="fas fa-history"></i> 详细评估记录 (${records.length} 个场景)</h5>
                     ${conversationHtml}
                 </div>
             `;
@@ -1591,6 +2026,100 @@
             } else {
                 element.style.display = 'none';
             }
+        }
+
+        function togglePersonaDetails() {
+            const content = document.getElementById('personaDetailsContent');
+            const btn = document.getElementById('personaToggleBtn');
+            const icon = btn.querySelector('.fas');
+
+            if (content.classList.contains('show')) {
+                content.classList.remove('show');
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+                btn.innerHTML = '<i class="fas fa-chevron-down"></i> 查看详细';
+            } else {
+                content.classList.add('show');
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-up');
+                btn.innerHTML = '<i class="fas fa-chevron-up"></i> 收起详细';
+            }
+        }
+
+        async function downloadReport(format) {
+            if (!currentEvaluationData) {
+                alert('没有可下载的评估结果');
+                return;
+            }
+
+            try {
+                console.log(`开始下载 ${format} 格式报告...`);
+
+                // Get include transcript option
+                const includeTranscript = document.getElementById('includeTranscript').checked;
+
+                // Prepare form data
+                const formData = new FormData();
+                formData.append('evaluation_data', JSON.stringify(currentEvaluationData));
+                formData.append('format', format);
+                formData.append('include_transcript', includeTranscript);
+
+                // Show loading indication
+                const originalButtons = document.querySelectorAll('.btn-group button');
+                originalButtons.forEach(btn => btn.disabled = true);
+
+                // Make request to download endpoint
+                const response = await fetch('/api/download-report', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`下载失败: ${response.status} ${response.statusText}`);
+                }
+
+                // Handle different response types
+                if (format === 'json') {
+                    // For JSON, we get a JSON response
+                    const data = await response.json();
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    downloadBlob(blob, `evaluation_report_${getCurrentTimestamp()}.json`);
+                } else {
+                    // For TXT and DOCX, we get file responses
+                    const blob = await response.blob();
+                    const filename = format === 'txt' ?
+                        `evaluation_report_${getCurrentTimestamp()}.txt` :
+                        `evaluation_report_${getCurrentTimestamp()}.docx`;
+                    downloadBlob(blob, filename);
+                }
+
+                console.log(`✅ ${format} 报告下载成功`);
+
+            } catch (error) {
+                console.error('❌ Download failed:', error);
+                alert('下载失败: ' + error.message);
+            } finally {
+                // Re-enable buttons
+                const originalButtons = document.querySelectorAll('.btn-group button');
+                originalButtons.forEach(btn => btn.disabled = false);
+            }
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+
+        function getCurrentTimestamp() {
+            const now = new Date();
+            return now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '_');
         }
     </script>
 </body>

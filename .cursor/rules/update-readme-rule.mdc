@@ -1,8 +1,10 @@
 ---
-description: Everytime code is updated to a large extent or we try to delete things
+description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 Cursor shall always update the README.md as detailed function descriptions, explain what our program can achieve after we change any function. 
 
-*Don't ever delete my README_AI_Testing_Final.md as markdown file for product requirement description
+Cursor shall delete unnecessary testing code files if they are not really in use. But
+
+*Don't ever delete my markdown files or other text files like pdf or docx files for product requirement description etc.

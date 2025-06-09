@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+You can always refer to the debugging log file called "AI评估平台调试日志.md" to debug errors. If new error is debugged, make sure to update the debugging log file. 

@@ -1,261 +1,253 @@
-# 🧠 AI Agent 自动化评估平台 v4.0
+# AI Agent Evaluation Platform v4.0
 
-> **智能AI代理评估系统 - 让AI评估变得简单高效**  
-> 上传文档 → 智能分析 → 动态对话 → 专业评估报告
+🚀 **DEPLOYMENT READY** - All configuration is hardcoded for easy deployment!
 
-![Platform](https://img.shields.io/badge/Status-Production%20Ready-success)
-![Evaluation](https://img.shields.io/badge/Evaluation-4%20Dimensions-blue)
-![Mode](https://img.shields.io/badge/Mode-Dynamic%20Conversation-green)
+A comprehensive platform for evaluating AI agents through dynamic multi-turn conversations with intelligent user persona extraction and 3-dimensional evaluation framework.
 
-## 🎯 平台简介
+## ✨ Key Features
 
-AI Agent评估平台帮您**科学评估任何AI系统的实际表现**。通过模拟真实用户对话，从4个专业维度分析AI的能力，生成详细的评估报告和改进建议。
+- **🎭 Intelligent User Persona Extraction**: Automatically extracts user personas from requirement documents using DeepSeek AI
+- **💬 Dynamic Conversation Generation**: Creates realistic, multi-turn conversations based on extracted personas
+- **📊 3-Dimensional Evaluation Framework**: 
+  - Fuzzy Understanding & Follow-up Capability
+  - Answer Accuracy & Professionalism  
+  - User Persona Alignment
+- **📄 Document Processing**: Supports Word (.docx), PDF (.pdf), and Text (.txt) files
+- **🔧 Multiple API Support**: Coze Bot, Coze Agent, and custom API configurations
+- **📈 Comprehensive Reporting**: Detailed analysis with improvement recommendations
 
-### ✨ 为什么选择我们？
+## 🚀 Quick Start (Deployment Ready)
 
-- **🚀 3分钟完成评估** - 上传文档，自动生成测试，一键获得专业报告
-- **🎭 真实场景模拟** - 基于您的需求文档，智能提取用户画像，生成贴近实际的对话场景  
-- **📊 专业评估报告** - 4维度评分 + 详细分析 + 改进建议，让您清楚知道AI哪里需要优化
-- **🔌 支持多平台** - Coze、自定义API，一个平台测试所有AI系统
+### Prerequisites
+- Python 3.8+
+- Internet connection for API calls
 
-## 🎬 使用演示
-
-### 典型使用流程
-```
-📄 上传需求文档 → 🤖 智能提取用户画像 → 🗣️ 自动生成对话场景 → 💬 动态多轮测试 → 📊 生成评估报告
-```
-
-### 实际案例演示
-
-#### 📋 **案例一：建筑工程AI助手评估**
-
-**需求场景：** 现场监理工程师需要AI助手解答施工规范问题
-
-**测试过程：**
-1. **上传文档** - 上传工程规范需求文档
-2. **自动分析** - 系统提取出"现场监理工程师，5年经验，偏好简洁明了"
-3. **动态对话** - 生成2个真实场景：
-   - 场景1：钢筋绑扎间距不符合规范
-   - 场景2：混凝土浇筑旁站监督记录
-
-**对话示例：**
-```
-👤 用户: "现场发现3轴交B轴的梁钢筋绑扎间距超过设计要求的200mm"
-🤖 AI回复: "现场发现钢筋绑扎间距超标，应采取以下措施：1. 立即要求施工单位整改..."
-👤 系统追问: "请明确整改通知单的具体下发时间和复验安排"
-🤖 AI回复: "整改通知单应立即下发，复验可在整改期限后1-2天进行..."
-```
-
-**评估结果：**
-- 🔍 **模糊理解**: 3.0/5 - 能识别问题但追问不够主动
-- ✅ **回答准确性**: 5.0/5 - 回答专业准确，有规范依据  
-- 👥 **用户匹配**: 3.0/5 - 语言风格基本符合监理工程师
-- 🎯 **目标对齐**: 1.0/5 - 未能完全解决现场实际需求
-
-**改进建议：** 需要加强主动追问能力，更好地引导用户提供关键信息
-
-## 📖 快速开始指南
-
-### 第一步：选择评估模式
-
-#### 🗣️ **动态对话模式** ⭐ 推荐
-**最接近真实使用场景的智能评估**
-
-1. 上传您的需求文档（Word/PDF/TXT格式）
-2. 平台自动分析并提取用户画像
-3. 智能生成2个测试场景  
-4. 每轮对话基于AI回答动态生成后续问题
-5. 获得综合评估报告
-
-**适用场景：** 大多数AI系统评估需求
-
-#### 🤖 **智能提取模式**
-**基于文档深度分析的评估**
-
-1. 上传详细需求文档
-2. 点击"提取用户画像"查看分析结果
-3. 系统基于画像自动生成测试场景
-4. 开始评估并获得报告
-
-**适用场景：** 有详细需求文档，需要深度分析的场景
-
-#### ✋ **手动配置模式**  
-**完全自定义的精确评估**
-
-1. 手动设置用户角色（如：现场工程师、客服代表等）
-2. 自定义对话场景和测试问题
-3. 设置具体的对话轮次
-4. 开始定制化评估
-
-**适用场景：** 特定场景测试，需要精确控制测试内容
-
-### 第二步：配置AI系统
-
-根据您要测试的AI系统，选择对应配置：
-
-#### 🤖 **Coze Agent**
-```
-Agent ID: 您的Agent唯一标识
-Access Token: API访问令牌  
-平台版本: 选择全球版或中国版
-```
-
-#### 💬 **Coze Bot**
-```
-Bot ID: 您的Bot唯一标识
-Bot版本: latest或指定版本
-```
-
-#### 🔧 **自定义API**
-```
-API地址: 如 https://api.openai.com/v1/chat/completions
-认证信息: Bearer Token或API Key
-```
-
-### 第三步：查看评估结果
-
-#### 📊 **评估报告包含：**
-
-1. **综合得分** - 1-5分制，星级直观展示
-2. **分维度评分** - 4个专业维度的详细分析
-3. **对话记录** - 完整的测试过程回放
-4. **改进建议** - 基于评估结果的具体优化方向
-
-## 🎯 评估维度详解
-
-### 🔍 **模糊理解能力**
-**测试AI对不完整、模糊描述的处理能力**
-
-**好的表现：**
-- ✅ 主动识别用户表达中的模糊点
-- ✅ 有针对性地追问关键信息  
-- ✅ 引导用户提供必要细节
-
-**示例对话：**
-```
-👤 "墙面有点问题"
-🤖 优秀AI: "您好，我需要了解更多信息来帮助您：1) 是什么类型的问题？2) 大概面积多大？3) 在建筑的哪个位置？"
-🤖 较差AI: "墙面问题可能是开裂、空鼓或渗漏，建议联系专业人员检查。"
-```
-
-### ✅ **回答准确性**  
-**测试AI回答的专业性和实用性**
-
-**评判标准：**
-- ✅ 回答内容专业准确
-- ✅ 提供具体操作指导
-- ✅ 引用相关规范标准
-- ✅ 避免错误或有害信息
-
-### 👥 **用户匹配度**
-**测试AI是否符合目标用户的特征**
-
-**匹配要素：**
-- 🎯 语言风格（专业术语 vs 通俗易懂）
-- 🎯 回答详细程度（简洁 vs 详细）
-- 🎯 沟通方式（正式 vs 亲和）
-- 🎯 专业程度（新手 vs 专家）
-
-### 🎯 **目标对齐性**
-**测试AI是否真正解决用户的实际需求**
-
-**评估重点：**
-- 🎯 是否解决了核心问题
-- 🎯 是否提供可行的解决方案  
-- 🎯 是否符合业务目标
-- 🎯 是否提升了工作效率
-
-## 🌟 应用场景
-
-### 👨‍💼 **企业AI系统评估**
-- 客服机器人效果评估
-- 内部AI助手能力测试
-- AI产品上线前质量检查
-- 不同AI方案对比选型
-
-### 🏗️ **行业专用AI评估**  
-- 建筑工程AI助手
-- 医疗咨询AI系统
-- 教育辅导AI平台
-- 金融服务AI顾问
-
-### 🔧 **AI开发团队**
-- 新功能迭代效果验证
-- 模型性能基准测试
-- 用户体验优化指导
-- 竞品对比分析
-
-## 🚀 快速部署
-
-### 本地运行
+### 1. Clone and Setup
 ```bash
-# 1. 安装依赖
+git clone <your-repository-url>
+cd ai_test
 pip install -r requirements.txt
-
-# 2. 启动服务  
-python main.py
-
-# 3. 打开浏览器访问
-http://localhost:8000
 ```
 
-### Docker部署
+### 2. Start the Server
 ```bash
-# 1. 构建并运行
-docker build -t ai-evaluator .
-docker run -p 8000:8000 ai-evaluator
-
-# 2. 访问平台
-http://localhost:8000
+python main.py
 ```
 
-## 📈 评估报告示例
+The server will automatically:
+- Load all configuration from `config.py` (no environment variables needed!)
+- Find an available port (8000, 8001, etc.)
+- Display startup message with the port number
 
-### 综合评估结果
+### 3. Access the Platform
+Open your browser and go to: `http://localhost:8000` (or the port shown in startup message)
+
+## 🔧 Configuration
+
+All configuration is **hardcoded** in `config.py` for easy deployment:
+
+```python
+# DeepSeek API Configuration (Already configured)
+DEEPSEEK_API_KEY = "sk-d2513b4c4626409599a73ba64b2e9033"
+DEEPSEEK_API_BASE = "https://api.deepseek.com/v1/chat/completions"
+
+# Coze API Configuration (Already configured)  
+COZE_API_BASE = "https://api.coze.com/v3/chat"
+COZE_API_TOKEN = "pat_uNT5YdZdvv3AjgVyN9LzAZ7E9dUeGaHGAJ5HQp1PWy7PFKdIbJvGFxTGUq8vvCBB"
+DEFAULT_COZE_BOT_ID = "7511993619423985674"
+
+# Timeout Settings (Optimized to prevent network errors)
+DEEPSEEK_TIMEOUT = 60  # Increased for stability
+COZE_TIMEOUT = 60
 ```
-🎯 综合得分: 3.25/5.0 ⭐⭐⭐⭐⭐
-📊 评估场景: 2个
-💬 对话轮次: 10轮  
-🎭 用户画像: 现场监理工程师
+
+**No additional configuration needed!** Just run and deploy.
+
+## 📋 Usage
+
+### Dynamic Evaluation (Recommended)
+
+1. **Upload Document**: Upload your requirement document (Word, PDF, or Text)
+2. **Configure AI Agent**: Set up your AI agent API configuration
+3. **Start Evaluation**: The platform will:
+   - Extract user persona from your document
+   - Generate 2 dynamic conversation scenarios
+   - Conduct 2-3 turn conversations per scenario
+   - Provide comprehensive evaluation and recommendations
+
+### API Configuration Examples
+
+#### Coze Bot Configuration
+```json
+{
+  "type": "coze-bot",
+  "url": "https://api.coze.com/v3/chat",
+  "botId": "your-bot-id",
+  "headers": {
+    "Authorization": "Bearer your-access-token"
+  }
+}
 ```
 
-### 分维度评分
-| 维度 | 得分 | 评价 | 改进建议 |
-|------|------|------|----------|
-| 🔍 模糊理解 | 3.0/5 | 基本理解但追问不够主动 | 增加引导性问题模板 |
-| ✅ 回答准确性 | 4.0/5 | 专业准确，有规范依据 | 继续保持专业水准 |  
-| 👥 用户匹配 | 3.0/5 | 语言风格基本符合 | 调整术语密度 |
-| 🎯 目标对齐 | 3.0/5 | 部分解决实际需求 | 加强实用性指导 |
+#### Coze Agent Configuration  
+```json
+{
+  "type": "coze-agent",
+  "url": "https://api.coze.com/v3/chat",
+  "agentId": "your-agent-id",
+  "region": "global",
+  "headers": {
+    "Authorization": "Bearer your-access-token"
+  }
+}
+```
 
-## 🤝 支持与反馈
+## 🛠️ Technical Architecture
 
-### 常见问题
+### Core Components
+- **FastAPI Backend**: High-performance async web framework
+- **DeepSeek Integration**: AI-powered persona extraction and evaluation
+- **Document Processing**: Multi-format document parsing
+- **Dynamic Conversation Engine**: Real-time conversation generation
+- **Evaluation Framework**: Multi-dimensional scoring system
 
-**Q: 支持哪些AI平台？**
-A: 支持Coze Agent/Bot、OpenAI兼容API、以及任何REST API接口的AI系统。
+### API Endpoints
+- `GET /`: Main evaluation interface
+- `POST /api/evaluate-agent-dynamic`: Dynamic evaluation with persona extraction
+- `POST /api/evaluate-agent-with-file`: Manual evaluation with custom scenarios
+- `POST /api/validate-config`: API configuration validation
 
-**Q: 一次评估需要多长时间？**  
-A: 通常3-5分钟，包括文档分析、对话生成和评估报告生成。
+## 🔍 Evaluation Dimensions
 
-**Q: 评估结果的准确性如何？**
-A: 基于DeepSeek智能引擎，结合多轮真实对话测试，评估结果具有很高的参考价值。
+### 1. Fuzzy Understanding & Follow-up Capability (模糊理解与追问能力)
+- Ability to understand ambiguous user expressions
+- Proactive clarification and follow-up questions
+- Guidance towards clear requirements
 
-**Q: 可以评估中文AI系统吗？**
-A: 完全支持中文AI系统评估，平台本身就是为中文场景设计。
+### 2. Answer Accuracy & Professionalism (回答准确性与专业性)
+- Factual correctness of responses
+- Professional terminology usage
+- Reference to standards and regulations
 
-### 技术支持
-- 📧 **邮箱支持**: 遇到问题可发送邮件获得技术支持
-- 🐛 **问题反馈**: 在GitHub Issues中提交问题和建议
-- 📖 **使用文档**: 查看更详细的使用说明和最佳实践
+### 3. User Persona Alignment (用户适配度)
+- Communication style matching user background
+- Appropriate technical level for user experience
+- Cultural and contextual sensitivity
+
+## 📊 Sample Output
+
+```json
+{
+  "evaluation_summary": {
+    "overall_score": 4.2,
+    "total_scenarios": 2,
+    "total_conversations": 6,
+    "framework": "动态多轮对话评估"
+  },
+  "extracted_persona_display": {
+    "user_role": "现场监理工程师",
+    "business_domain": "建筑工程",
+    "experience_level": "5年现场经验",
+    "communication_style": "简洁专业，偶有模糊表达"
+  },
+  "recommendations": [
+    "🟢 针对现场监理工程师的整体表现优秀！",
+    "💡 建议加强对模糊问题的追问引导机制",
+    "📚 提升建筑规范相关知识的准确性"
+  ]
+}
+```
+
+## 🚀 Deployment Options
+
+### Local Development
+```bash
+python main.py
+```
+
+### Production with Gunicorn
+```bash
+pip install gunicorn
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000
+```
+
+### Docker Deployment
+```bash
+docker build -t ai-evaluation-platform .
+docker run -p 8000:8000 ai-evaluation-platform
+```
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+1. **Network Timeout Errors**: 
+   - Already fixed with increased timeout settings in config.py
+   - DEEPSEEK_TIMEOUT and COZE_TIMEOUT set to 60 seconds
+
+2. **API Authentication Errors**:
+   - Check your API tokens in the configuration
+   - Ensure tokens have proper permissions
+
+3. **Document Processing Errors**:
+   - Ensure document is not corrupted
+   - Check file size (max 10MB)
+   - Supported formats: .docx, .pdf, .txt
+
+### Error Handling
+The platform includes comprehensive error handling:
+- Automatic fallback for persona extraction failures
+- Graceful degradation for API timeouts
+- **Fixed Coze API Integration**: Resolved "no valid response content" errors with proper SSE streaming support
+
+## 🔧 Recent Updates
+
+### v4.1 - Coze API Integration Fix
+- **✅ Fixed Coze API Response Parsing**: Resolved critical issue where Coze API returned "no valid response content in coze api result"
+- **🔄 Enhanced Streaming Support**: Added proper Server-Sent Events (SSE) parsing for Coze API streaming responses
+- **📡 Improved API Compatibility**: Updated payload format to match Coze API v3 requirements:
+  - Added missing `"type": "question"` field in message objects
+  - Implemented proper `"parameters": {}` field structure
+  - Enhanced content-type detection for streaming vs JSON responses
+- **🚀 Better Error Handling**: Improved error messages and fallback mechanisms for API failures
+- **⚡ Performance Optimization**: Optimized response parsing for both streaming and non-streaming API responses
+
+### Technical Details of Coze API Fix
+The fix addresses several critical issues:
+1. **Missing Required Fields**: Added `"type": "question"` field which was causing API rejections
+2. **Streaming Response Parsing**: Implemented proper SSE (Server-Sent Events) parsing for `text/event-stream` responses
+3. **Content Extraction Logic**: Enhanced logic to extract content from both `conversation.message.delta` and `conversation.message.completed` events
+4. **Fallback Mechanisms**: Added multiple fallback strategies for different response formats
+- Detailed error messages for debugging
+
+## 📝 Development Notes
+
+### Recent Fixes (v4.0)
+- ✅ All configuration moved to `config.py` (no environment variables)
+- ✅ Increased API timeouts to prevent network errors
+- ✅ Enhanced error handling with fallback mechanisms
+- ✅ Improved DeepSeek API integration
+- ✅ Optimized Coze API calls
+- ✅ Better document processing reliability
+
+### Code Quality
+- Type hints throughout codebase
+- Comprehensive error handling
+- Async/await for optimal performance
+- Modular architecture for easy maintenance
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License.
 
 ---
 
-<div align="center">
-
-**🎯 让AI评估变得简单专业**
-
-适用于企业AI选型 • 产品质量检测 • 开发效果验证 • 竞品对比分析
-
-**⭐ 如果对您有帮助，请给我们一个Star支持！**
-
-</div>
+**Ready for immediate deployment!** 🚀 Just clone, install dependencies, and run!

@@ -3,6 +3,7 @@ import uvicorn
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import httpx
@@ -15,6 +16,33 @@ import os
 import re
 import tempfile
 import logging
+import traceback
+import uuid
+import hashlib
+
+# Database imports
+try:
+    import pymysql
+    PYMYSQL_AVAILABLE = True
+except ImportError:
+    PYMYSQL_AVAILABLE = False
+    print("⚠️ PyMySQL not available. Database features disabled.")
+
+# Coze SDK imports
+try:
+    from cozepy import COZE_CN_BASE_URL
+    from cozepy import Coze, TokenAuth, Message, ChatStatus, MessageContentType, ChatEventType
+    COZE_SDK_AVAILABLE = True
+except ImportError:
+    COZE_SDK_AVAILABLE = False
+    print("⚠️ Coze SDK not available. Using fallback HTTP requests.")
+
+# Import configuration
+import config
+
+# Set up logging for better debugging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Document processing imports
 try:
@@ -25,6 +53,15 @@ except ImportError:
     DOCUMENT_PROCESSING_AVAILABLE = False
 
 app = FastAPI(title="AI Agent Evaluation Platform", version="3.0.0")
+
+# Create static directory if it doesn't exist
+static_dir = "static"
+if not os.path.exists(static_dir):
+    os.makedirs(static_dir)
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 templates = Jinja2Templates(directory="templates")
 
 # Improved document processing functions based on user's approach
@@ -114,39 +151,84 @@ def read_txt_file(filepath: str) -> str:
         return error_msg
 
 async def process_uploaded_document_improved(file: UploadFile) -> str:
-    """Process uploaded document using improved approach with temporary files"""
+    """Process uploaded document using improved approach with comprehensive error handling"""
     if not file or not file.filename:
-        return ""
+        print("⚠️ 文档上传：文件为空或无文件名")
+        return "错误：未提供有效文件"
+    
+    # Log file info
+    print(f"📄 开始处理上传文件: {file.filename}")
+    print(f"📄 文件类型: {getattr(file, 'content_type', '未知')}")
     
     # Create temporary file
     suffix = os.path.splitext(file.filename)[1].lower()
+    print(f"📄 检测文件扩展名: {suffix}")
     
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
         try:
             # Write uploaded content to temporary file
+            print("📤 读取上传文件内容...")
             content = await file.read()
+            
+            if not content:
+                print("❌ 上传文件内容为空")
+                return "错误：上传文件内容为空"
+            
+            print(f"📤 文件大小: {len(content)} 字节")
+            
             tmp_file.write(content)
             tmp_file.flush()
             
+            print(f"💾 临时文件已创建: {tmp_file.name}")
+            
             # Process based on file extension
             if suffix in ['.doc', '.docx']:
+                print("📖 使用Word文档解析器...")
                 result = read_docx_file(tmp_file.name)
             elif suffix == '.pdf':
+                print("📖 使用PDF文档解析器...")
                 result = read_pdf_file(tmp_file.name)
             elif suffix == '.txt':
+                print("📖 使用文本文件解析器...")
                 result = read_txt_file(tmp_file.name)
             else:
-                result = f"不支持的文件格式: {suffix}。支持格式: Word (.docx), PDF (.pdf), 文本 (.txt)"
+                error_msg = f"不支持的文件格式: {suffix}。支持格式: Word (.docx), PDF (.pdf), 文本 (.txt)"
+                print(f"❌ {error_msg}")
+                return error_msg
             
+            # Validate result
+            if not result:
+                print("❌ 文档解析结果为空")
+                return "错误：文档解析结果为空，可能文件已损坏或格式不正确"
+            
+            if len(result) < 10:
+                print(f"⚠️ 文档解析结果过短: {len(result)} 字符")
+                return f"错误：文档内容过短({len(result)}字符)，可能解析失败"
+            
+            # Check for error messages in result
+            error_indicators = ['error', 'exception', 'traceback', 'failed', 'Error:', 'Exception:', '处理失败', '解析失败']
+            if any(indicator in result for indicator in error_indicators):
+                print("⚠️ 解析结果中包含错误信息")
+                return "错误：文档解析过程中出现错误，请检查文件格式或内容"
+            
+            print(f"✅ 文档处理成功，提取内容长度: {len(result)} 字符")
             return result
             
         except Exception as e:
-            return f"文档处理失败: {str(e)}"
+            error_msg = f"文档处理异常: {str(e)}"
+            print(f"❌ {error_msg}")
+            print(f"📋 异常类型: {type(e).__name__}")
+            
+            # Return a clean error message instead of the raw exception
+            return f"错误：文档处理失败 - {type(e).__name__}。请检查文件格式是否正确。"
         finally:
             # Clean up temporary file
             try:
-                os.unlink(tmp_file.name)
-            except:
+                if os.path.exists(tmp_file.name):
+                    os.unlink(tmp_file.name)
+                    print(f"🗑️ 临时文件已清理: {tmp_file.name}")
+            except Exception as cleanup_error:
+                print(f"⚠️ 临时文件清理失败: {str(cleanup_error)}")
                 pass
 
 # Legacy functions for backward compatibility (but using improved approach)
@@ -211,7 +293,7 @@ class EvaluationRequest(BaseModel):
     conversation_scenarios: List[ConversationScenario] = Field(..., description="Test scenarios")
     
     # Coze compatibility (temporary until full API support)
-    coze_bot_id: Optional[str] = Field(default="7511993619423985674", description="Coze Bot ID for current implementation")
+    coze_bot_id: Optional[str] = Field(default=None, description="Coze Bot ID for current implementation")
 
 class EvaluationDimensions(BaseModel):
     """3-dimension evaluation framework from README"""
@@ -227,57 +309,122 @@ class EvaluationResponse(BaseModel):
     recommendations: List[str] = Field(..., description="Improvement suggestions")
     timestamp: str = Field(..., description="Evaluation timestamp")
 
-# DeepSeek Configuration
-DEEPSEEK_API_KEY = "sk-d2513b4c4626409599a73ba64b2e9033"
-DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+# Configuration - Using config.py for direct API key management
+# All constants are now accessed directly from config module
+
+print(f"✅ Configuration loaded from config.py - DeepSeek API configured")
+
+# Conversation continuity management
+class ConversationManager:
+    """Manage conversation continuity across API calls"""
+    
+    def __init__(self, api_config: 'APIConfig'):
+        self.api_config = api_config
+        self.conversation_id = ""
+        self.api_type = self._determine_api_type()
+        
+    def _determine_api_type(self) -> str:
+        """Determine the API type based on URL"""
+        if "/v1/chat-messages" in self.api_config.url or "dify" in self.api_config.url.lower():
+            return "dify"
+        elif "coze" in self.api_config.url.lower():
+            return "coze"
+        else:
+            return "custom"
+    
+    def start_new_conversation(self) -> str:
+        """Start a new conversation and return conversation ID"""
+        if self.api_type == "dify":
+            # For Dify, conversation_id will be extracted from first response
+            self.conversation_id = ""
+        else:
+            # For other APIs, generate a unique conversation ID
+            self.conversation_id = f"conv_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        
+        return self.conversation_id
+    
+    def get_conversation_id(self) -> str:
+        """Get current conversation ID"""
+        return self.conversation_id
+    
+    def update_conversation_id(self, new_id: str):
+        """Update conversation ID (used when extracted from API response)"""
+        if new_id and new_id != self.conversation_id:
+            self.conversation_id = new_id
+            print(f"🔗 更新对话ID: {new_id[:20]}...")
 
 async def call_deepseek_api(prompt: str, max_retries: int = 2) -> str:
-    """Enhanced DeepSeek API call for evaluation with suppressed exceptions"""
+    """
+    Call DeepSeek API with improved error handling
+    """
     headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
     
     payload = {
         "model": "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "max_tokens": 500
+        "max_tokens": 1000,
+        "temperature": config.DEFAULT_TEMPERATURE
     }
     
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(20.0)) as client:
-                response = await client.post(DEEPSEEK_API_URL, headers=headers, json=payload)
+            timeout = httpx.Timeout(config.DEEPSEEK_TIMEOUT, connect=10.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(config.DEEPSEEK_API_URL, headers=headers, json=payload)
                 
                 if response.status_code == 200:
                     result = response.json()
                     if "choices" in result and len(result["choices"]) > 0:
-                        content = result["choices"][0].get("message", {}).get("content", "").strip()
-                        if content and len(content) > 10:
-                            return content
-                
-                # Suppress warning message for non-critical errors
-                if attempt < max_retries - 1:
-                    continue
+                        return result["choices"][0]["message"]["content"].strip()
+                    else:
+                        raise Exception("No valid response from API")
+                elif response.status_code == 401:
+                    raise Exception("API authentication failed - check API key")
+                elif response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    raise Exception("API rate limited")
                 else:
-                    return "API评估暂时不可用，使用备用评分机制"
+                    error_text = response.text if hasattr(response, 'text') else 'Unknown error'
+                    raise Exception(f"API error {response.status_code}: {error_text}")
                     
-        except Exception as e:
-            # Suppress exception printing to avoid jarring terminal output
+        except (asyncio.TimeoutError, httpx.TimeoutException):
             if attempt < max_retries - 1:
+                await asyncio.sleep(1)
                 continue
-            else:
-                return "API评估暂时不可用，使用备用评分机制"
+            raise Exception(f"API timeout after {config.DEEPSEEK_TIMEOUT}s")
+        except httpx.RequestError as e:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1)
+                continue
+            raise Exception(f"Network error: {str(e)}")
+        except Exception as e:
+            raise e
+            
+    raise Exception("All API attempts failed")
 
-async def call_ai_agent_api(api_config: APIConfig, message: str) -> str:
-    """Call AI Agent API - currently supports Coze, will expand for custom APIs"""
+async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None) -> str:
+    """Call AI Agent API - supports Coze, Dify, and custom APIs with conversation continuity"""
     try:
         # Check if we should use Coze API (either explicit coze URL or fallback URL)
         if "coze" in api_config.url.lower() or "fallback" in api_config.url.lower():
             return await call_coze_api_fallback(message)
+        # Check if this is a Dify API (based on URL pattern)
+        elif "/v1/chat-messages" in api_config.url or "dify" in api_config.url.lower():
+            conversation_id = conversation_manager.get_conversation_id() if conversation_manager else ""
+            response_content, new_conversation_id = await call_dify_api(api_config, message, conversation_id)
+            
+            # Update conversation manager with new conversation ID
+            if conversation_manager and new_conversation_id:
+                conversation_manager.update_conversation_id(new_conversation_id)
+            
+            return response_content
         else:
-            # Generic API support (to be implemented)
+            # Generic API support
             headers = api_config.headers.copy()
             headers.setdefault("Content-Type", "application/json")
             
@@ -309,73 +456,301 @@ async def call_ai_agent_api(api_config: APIConfig, message: str) -> str:
         print(f"❌ AI Agent API调用异常: {str(e)}")
         return "AI Agent API调用失败，请检查配置"
 
-async def call_coze_api_fallback(message: str, bot_id: str = "7511993619423985674") -> str:
-    """Fallback to Coze API for current implementation"""
-    max_retries = 3
-    
-    for attempt in range(max_retries):
-        try:
-            url = "https://api.coze.cn/open_api/v2/chat"
-            headers = {
-                "Authorization": "Bearer pat_aWWxLQe20D8km5FsKt5W99pWL72L5LNxjkontH91q3lqqTU0ExBKUBl1cUy4tm8c",
-                "Content-Type": "application/json"
-            }
+async def call_dify_api(api_config: APIConfig, message: str, conversation_id: str = "") -> tuple:
+    """
+    Call Dify API with proper payload format and conversation continuity
+    Returns: (response_content, conversation_id)
+    """
+    try:
+        print(f"🔍 调用Dify API: {api_config.url}")
+        
+        headers = api_config.headers.copy()
+        headers.setdefault("Content-Type", "application/json")
+        
+        # Dify API specific payload format with conversation continuity
+        payload = {
+            "inputs": {},
+            "query": message,
+            "response_mode": "streaming",
+            "conversation_id": conversation_id,  # Use provided conversation_id for continuity
+            "user": "evaluation-user",
+            "files": []
+        }
+        
+        print(f"📤 Dify API请求载荷: {json.dumps(payload, ensure_ascii=False)[:200]}...")
+        if conversation_id:
+            print(f"🔗 使用对话ID: {conversation_id[:20]}...")
+        
+        async with httpx.AsyncClient(timeout=httpx.Timeout(api_config.timeout)) as client:
+            response = await client.post(api_config.url, headers=headers, json=payload)
             
-            payload = {
-                "conversation_id": f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{attempt}",
-                "bot_id": bot_id,
-                "user": "test_user",
-                "query": message,
-                "stream": False
-            }
+            print(f"🔍 Dify API响应状态: {response.status_code}")
             
-            print(f"🔄 Coze API 调用尝试 {attempt + 1}/{max_retries}")
-            
-            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-                response = await client.post(url, headers=headers, json=payload)
+            if response.status_code == 200:
+                # Check if response is streaming
+                content_type = response.headers.get("content-type", "").lower()
                 
-                if response.status_code == 200:
-                    result = response.json()
-                    messages = result.get("messages", [])
-                    for msg in messages:
-                        if msg.get("type") == "answer":
-                            content = msg.get("content", "")
-                            if content and len(content.strip()) > 0:
-                                print(f"✅ Coze API 成功响应")
-                                return content
+                if "text/event-stream" in content_type or payload.get("response_mode") == "streaming":
+                    # Handle streaming response
+                    response_text = response.text
+                    print(f"🔍 处理Dify流式响应 ({len(response_text)} chars)")
                     
-                    # If no answer found, try other message types
-                    for msg in messages:
-                        if msg.get("content"):
-                            content = msg.get("content", "")
-                            if content and len(content.strip()) > 0:
-                                print(f"✅ Coze API 返回备用内容")
-                                return content
+                    if not response_text.strip():
+                        raise Exception("Empty streaming response from Dify API")
                     
-                    print(f"⚠️ Coze API 返回空内容，尝试重试...")
-                else:
-                    print(f"⚠️ Coze API HTTP错误: {response.status_code}")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                        continue
+                    # Parse Dify streaming format
+                    lines = response_text.strip().split('\n')
+                    collected_content = ""
+                    conversation_id_extracted = conversation_id  # Start with input conversation_id
+                    
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            continue
                         
-        except Exception as e:
-            print(f"❌ Coze API调用异常 (尝试 {attempt + 1}): {str(e)}")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                continue
+                        if line.startswith("data: "):
+                            data_content = line[6:]  # Remove "data: " prefix
+                            
+                            # Skip end marker
+                            if data_content.strip() in ['"[DONE]"', "[DONE]"]:
+                                break
+                            
+                            try:
+                                data_json = json.loads(data_content)
+                                
+                                # Extract conversation_id for future continuity
+                                if "conversation_id" in data_json and data_json["conversation_id"]:
+                                    conversation_id_extracted = data_json["conversation_id"]
+                                
+                                # Extract content from Dify response
+                                if "answer" in data_json:
+                                    collected_content += data_json["answer"]
+                                elif "data" in data_json and "answer" in data_json["data"]:
+                                    collected_content += data_json["data"]["answer"]
+                                elif "message" in data_json:
+                                    collected_content += data_json["message"]
+                                    
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    if collected_content:
+                        print(f"✅ Dify流式响应解析成功: {collected_content[:100]}...")
+                        if conversation_id_extracted and conversation_id_extracted != conversation_id:
+                            print(f"🔗 提取到对话ID: {conversation_id_extracted[:20]}...")
+                        return collected_content.strip(), conversation_id_extracted
+                    else:
+                        print("❌ 未从Dify流式响应中提取到有效内容")
+                        raise Exception("No valid content in Dify streaming response")
+                
+                else:
+                    # Handle regular JSON response
+                    result = response.json()
+                    print(f"🔍 Dify JSON响应: {json.dumps(result, ensure_ascii=False)[:300]}...")
+                    
+                    # Try to extract answer from various possible response formats
+                    response_content = ""
+                    conversation_id_extracted = conversation_id
+                    
+                    if "answer" in result:
+                        response_content = result["answer"].strip()
+                    elif "data" in result and isinstance(result["data"], dict):
+                        if "answer" in result["data"]:
+                            response_content = result["data"]["answer"].strip()
+                        elif "message" in result["data"]:
+                            response_content = result["data"]["message"].strip()
+                    elif "message" in result:
+                        response_content = result["message"].strip()
+                    else:
+                        print(f"⚠️ 未知的Dify响应格式，尝试返回完整响应")
+                        response_content = str(result)
+                    
+                    # Extract conversation_id from JSON response
+                    if "conversation_id" in result and result["conversation_id"]:
+                        conversation_id_extracted = result["conversation_id"]
+                    
+                    return response_content, conversation_id_extracted
+            else:
+                error_text = response.text if hasattr(response, 'text') else 'Unknown error'
+                print(f"❌ Dify API HTTP错误 {response.status_code}: {error_text}")
+                raise Exception(f"Dify API HTTP error {response.status_code}: {error_text}")
+                
+    except (asyncio.TimeoutError, httpx.TimeoutException):
+        print(f"❌ Dify API超时 after {api_config.timeout}s")
+        raise Exception(f"Dify API timeout after {api_config.timeout}s")
+    except httpx.RequestError as e:
+        print(f"❌ Dify API网络错误: {str(e)}")
+        raise Exception(f"Dify API network error: {str(e)}")
+    except Exception as e:
+        print(f"❌ Dify API调用异常: {str(e)}")
+        raise e
+
+async def call_coze_api_fallback(message: str, bot_id: str = None) -> str:
+    """
+    Updated Coze API fallback to match working curl request format exactly
+    """
+    if not bot_id:
+        bot_id = config.DEFAULT_COZE_BOT_ID
+        
+    headers = {
+        "Authorization": f"Bearer {config.COZE_API_TOKEN}",
+        "Content-Type": "application/json"
+    }
     
-    return "Coze API调用失败，请检查网络连接和API配置"
+    # Match the exact format from working curl request
+    payload = {
+        "parameters": {},
+        "bot_id": bot_id,
+        "user_id": "123",
+        "additional_messages": [
+            {
+                "content_type": "text",
+                "type": "question",  # This was missing - critical field!
+                "role": "user",
+                "content": message
+            }
+        ],
+        "auto_save_history": True,
+        "stream": True  # Match curl request
+    }
+    
+    try:
+        timeout = httpx.Timeout(config.COZE_TIMEOUT, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            # Use CN endpoint as in curl
+            response = await client.post("https://api.coze.cn/v3/chat", headers=headers, json=payload)
+            
+            print(f"🔍 Coze API Response Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                # Check if response is streaming (text/event-stream) or JSON
+                content_type = response.headers.get("content-type", "").lower()
+                
+                if "text/event-stream" in content_type or "stream" in content_type:
+                    # Handle streaming response - parse as SSE (Server-Sent Events)
+                    response_text = response.text
+                    print(f"🔍 Handling SSE streaming response ({len(response_text)} chars)")
+                    
+                    if not response_text.strip():
+                        print("⚠️ Empty response body")
+                        raise Exception("Empty streaming response")
+                    
+                    # Parse SSE format
+                    lines = response_text.strip().split('\n')
+                    collected_content = ""
+                    main_answer = ""
+                    current_event = None
+                    
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        # Handle SSE format: event:xxx and data:xxx
+                        if line.startswith("event:"):
+                            current_event = line[6:]  # Remove "event:" prefix
+                            
+                        elif line.startswith("data:"):
+                            data_content = line[5:]  # Remove "data:" prefix
+                            
+                            # Handle end marker
+                            if data_content.strip() in ['"[DONE]"', "[DONE]"]:
+                                break
+                            
+                            try:
+                                # Parse the JSON data
+                                data_json = json.loads(data_content)
+                                
+                                # Extract content based on event type
+                                if current_event == "conversation.message.delta":
+                                    # This is streaming content chunk
+                                    if "content" in data_json:
+                                        content_chunk = data_json["content"]
+                                        collected_content += content_chunk
+                                        
+                                elif current_event == "conversation.message.completed":
+                                    # This is a completed message - prefer this over delta chunks
+                                    if "content" in data_json and data_json.get("role") == "assistant":
+                                        message_content = data_json["content"]
+                                        if message_content and len(message_content) > 50:  # Substantial content
+                                            # Prefer longer, more substantial responses
+                                            if not main_answer or len(message_content) > len(main_answer):
+                                                main_answer = message_content
+                                                
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    # Return the best available content
+                    if main_answer:
+                        print(f"✅ Found main answer ({len(main_answer)} chars): {main_answer[:200]}...")
+                        return main_answer.strip()
+                    elif collected_content:
+                        print(f"✅ Using collected streaming content ({len(collected_content)} chars): {collected_content[:200]}...")
+                        return collected_content.strip()
+                    else:
+                        print("❌ No content found in streaming response")
+                        raise Exception("No content in streaming response")
+                
+                else:
+                    # Handle regular JSON response
+                    result = response.json()
+                    print(f"🔍 Coze API Response Structure: {json.dumps(result, indent=2)[:500]}...")
+                    
+                    if result.get("code") == 0 and "data" in result:
+                        data = result["data"]
+                        
+                        # Handle non-streaming response format
+                        if "messages" in data and len(data["messages"]) > 0:
+                            # Get the last assistant message
+                            for msg in reversed(data["messages"]):
+                                if msg.get("role") == "assistant" and msg.get("content"):
+                                    print(f"✅ Found assistant response: {msg['content'][:100]}...")
+                                    return msg["content"].strip()
+                            
+                            # Fallback to any message content
+                            for msg in data["messages"]:
+                                if msg.get("content"):
+                                    print(f"✅ Found fallback response: {msg['content'][:100]}...")
+                                    return msg["content"].strip()
+                        
+                        # Check for other possible response formats
+                        if "answer" in data:
+                            print(f"✅ Found answer field: {data['answer'][:100]}...")
+                            return data["answer"].strip()
+                        
+                        if "content" in data:
+                            print(f"✅ Found content field: {data['content'][:100]}...")
+                            return data["content"].strip()
+                        
+                        print(f"⚠️ No response content found in data: {list(data.keys())}")
+                        raise Exception("No valid response content in Coze API result")
+                    else:
+                        error_msg = result.get("msg", "Unknown Coze API error")
+                        print(f"❌ Coze API returned error: {error_msg}")
+                        raise Exception(f"Coze API error: {error_msg}")
+            else:
+                error_text = response.text if hasattr(response, 'text') else 'Unknown error'
+                print(f"❌ HTTP error {response.status_code}: {error_text}")
+                raise Exception(f"Coze API HTTP error {response.status_code}: {error_text}")
+                
+    except (asyncio.TimeoutError, httpx.TimeoutException):
+        print(f"❌ Coze API timeout after {config.COZE_TIMEOUT}s")
+        raise Exception(f"Coze API timeout after {config.COZE_TIMEOUT}s")
+    except httpx.RequestError as e:
+        print(f"❌ Coze API network error: {str(e)}")
+        raise Exception(f"Coze API network error: {str(e)}")
+    except Exception as e:
+        print(f"❌ Coze API unexpected error: {str(e)}")
+        raise e
 
 def extract_score_from_response(response: str) -> float:
-    """Extract numerical score from DeepSeek response"""
+    """Extract numerical score from DeepSeek response (1-100 scale)"""
     try:
-        # Look for patterns like "评分：4分", "得分：4.5", "4/5", etc.
+        # Look for patterns like "评分：85分", "得分：75", "85/100", etc.
         patterns = [
             r'评分[：:]\s*(\d+(?:\.\d+)?)',
             r'得分[：:]\s*(\d+(?:\.\d+)?)',
             r'(\d+(?:\.\d+)?)\s*分',
-            r'(\d+(?:\.\d+)?)\s*/\s*5',
+            r'(\d+(?:\.\d+)?)\s*/\s*100',
             r'(\d+(?:\.\d+)?)\s*星'
         ]
         
@@ -383,7 +758,10 @@ def extract_score_from_response(response: str) -> float:
             match = re.search(pattern, response)
             if match:
                 score = float(match.group(1))
-                return min(max(score, 1.0), 5.0)  # Clamp between 1-5
+                # If score appears to be on 1-5 scale, convert to 1-100
+                if score <= 5.0:
+                    score = score * 20  # Convert 1-5 to 20-100
+                return min(max(score, 1.0), 100.0)  # Clamp between 1-100
         
         # If no pattern found, try to find any number
         numbers = re.findall(r'\d+(?:\.\d+)?', response)
@@ -391,17 +769,73 @@ def extract_score_from_response(response: str) -> float:
             for num in numbers:
                 score = float(num)
                 if 1 <= score <= 5:
+                    return score * 20  # Convert 1-5 to 20-100
+                elif 1 <= score <= 100:
                     return score
         
         # Default fallback
-        return 3.0
+        return 60.0  # Middle score
         
     except Exception:
-        return 3.0
+        return 60.0  # Middle score on error
+
+async def call_coze_api_sdk(bot_id: str, message: str) -> str:
+    """
+    Use official Coze SDK for API calls (preferred method)
+    """
+    if not COZE_SDK_AVAILABLE:
+        print("⚠️ Coze SDK不可用，使用HTTP fallback")
+        return await call_coze_api_fallback(message, bot_id)
+    
+    try:
+        # Initialize Coze client with config settings
+        coze = Coze(
+            auth=TokenAuth(token=config.COZE_API_KEY), 
+            base_url=COZE_CN_BASE_URL
+        )
+        
+        # Generate a unique user ID for this conversation
+        user_id = f"eval_user_{int(time.time())}"
+        
+        print(f"🔄 使用Coze SDK调用 Bot {bot_id}")
+        
+        # Collect response content
+        response_content = ""
+        token_count = 0
+        
+        # Create streaming chat
+        for event in coze.chat.stream(
+            bot_id=bot_id,
+            user_id=user_id,
+            additional_messages=[
+                Message.build_user_question_text(message),
+            ],
+        ):
+            if event.event == ChatEventType.CONVERSATION_MESSAGE_DELTA:
+                content = event.message.content
+                response_content += content
+                
+            elif event.event == ChatEventType.CONVERSATION_CHAT_COMPLETED:
+                if hasattr(event.chat, 'usage') and event.chat.usage:
+                    token_count = event.chat.usage.token_count
+                break
+        
+        if not response_content.strip():
+            raise Exception("Empty response from Coze SDK")
+            
+        print(f"✅ SDK调用成功，响应长度: {len(response_content)}, Token: {token_count}")
+        return response_content.strip()
+        
+    except Exception as e:
+        print(f"❌ Coze SDK调用失败: {str(e)}")
+        print("🔄 切换到HTTP fallback")
+        return await call_coze_api_fallback(message, bot_id)
 
 async def call_coze_api(bot_id: str, message: str) -> str:
-    """Legacy Coze Bot API call (fallback)"""
-    return await call_coze_api_fallback(message, bot_id)
+    """
+    Main Coze API call function - tries SDK first, then fallback
+    """
+    return await call_coze_api_sdk(bot_id, message)
 
 async def call_api(api_config: APIConfig, message: str) -> str:
     """Generic API call function"""
@@ -508,14 +942,22 @@ async def evaluate_conversation_deepseek(
 
 def generate_enhanced_recommendations(evaluation_results: List[Dict], user_persona_info: Dict = None) -> List[str]:
     """
-    Generate enhanced recommendations with persona awareness
+    Generate enhanced recommendations based on evaluation results and user persona
     """
     recommendations = []
     
     if not evaluation_results:
-        return ["⚠️ 无法生成建议：评估结果为空"]
+        return [
+            "无法生成推荐建议，请先完成有效的评估",
+            "检查AI Agent配置和网络连接",
+            "确保对话场景配置正确"
+        ]
     
-    # Calculate average scores
+    persona = user_persona_info.get('user_persona', {}) if user_persona_info else {}
+    context = user_persona_info.get('usage_context', {}) if user_persona_info else {}
+    requirements = user_persona_info.get('extracted_requirements', {}) if user_persona_info else {}
+    
+    # Calculate dimension averages from evaluation results
     all_scores = {}
     for result in evaluation_results:
         scores = result.get("evaluation_scores", {})
@@ -524,55 +966,71 @@ def generate_enhanced_recommendations(evaluation_results: List[Dict], user_perso
                 all_scores[dimension] = []
             all_scores[dimension].append(score)
     
-    avg_scores = {}
+    dimension_averages = {}
     for dimension, scores in all_scores.items():
-        avg_scores[dimension] = sum(scores) / len(scores) if scores else 0
+        dimension_averages[dimension] = sum(scores) / len(scores) if scores else 0
     
-    overall_avg = sum(avg_scores.values()) / len(avg_scores) if avg_scores else 0
+    # Overall performance assessment based on extracted persona
+    overall_avg = sum(dimension_averages.values()) / len(dimension_averages) if dimension_averages else 0
     
-    # Overall performance assessment
     if overall_avg >= 4.5:
-        recommendations.append("🟢 优秀表现！AI代理整体表现出色，能够有效处理各种用户需求")
+        recommendations.append(f"🟢 针对{persona.get('role', '用户')}的整体表现优秀！AI代理能够有效处理{context.get('business_domain', '业务')}需求")
     elif overall_avg >= 4.0:
-        recommendations.append("🟡 良好表现！AI代理基本满足使用需求，有进一步优化空间")
+        recommendations.append(f"🟡 对{persona.get('role', '用户')}的服务良好，基本满足{context.get('business_domain', '业务')}需求，有进一步优化空间")
     elif overall_avg >= 3.0:
-        recommendations.append("🟠 中等表现！建议针对低分维度进行重点改进")
+        recommendations.append(f"🟠 服务{persona.get('role', '用户')}的能力中等，建议针对{context.get('business_domain', '业务领域')}特点进行改进")
     else:
-        recommendations.append("🔴 需要显著改进！建议重新设计对话策略和知识库")
+        recommendations.append(f"🔴 需要显著改进对{persona.get('role', '用户')}的服务能力，特别是{context.get('business_domain', '业务')}相关功能")
     
-    # Dimension-specific recommendations with persona awareness
-    if avg_scores.get('fuzzy_understanding', 0) < 3.5:
-        persona_context = ""
-        if user_persona_info:
-            persona_context = f"特别是对于{user_persona_info['user_persona']['role']}这类用户，"
-        recommendations.append(f"💡 模糊理解能力需要加强：{persona_context}增加追问引导机制，提高对不明确需求的处理能力")
+    # Dimension-specific recommendations with persona context
+    if dimension_averages.get('fuzzy_understanding', 0) < 3.5:
+        pain_points = context.get('pain_points', [])
+        pain_context = f"，特别是{', '.join(pain_points[:2])}" if pain_points else ""
+        recommendations.append(f"💡 针对{persona.get('role', '用户')}的模糊理解能力需要加强：增加追问引导机制{pain_context}")
     
-    if avg_scores.get('answer_correctness', 0) < 3.5:
-        recommendations.append("📚 专业准确性需要提升：加强知识库建设，确保回答的专业性和准确性")
+    if dimension_averages.get('answer_correctness', 0) < 3.5:
+        expertise_areas = persona.get('expertise_areas', [])
+        expertise_context = f"，特别是{', '.join(expertise_areas[:2])}领域" if expertise_areas else ""
+        recommendations.append(f"📚 针对{persona.get('role', '用户')}的专业准确性需要提升：加强知识库建设{expertise_context}")
     
-    if avg_scores.get('persona_alignment', 0) < 3.5:
-        persona_context = ""
-        if user_persona_info:
-            style = user_persona_info['user_persona']['communication_style']
-            persona_context = f"特别要匹配{style}的沟通风格，"
-        recommendations.append(f"👥 用户匹配度有待改善：{persona_context}优化语言风格和专业术语使用")
+    if dimension_averages.get('persona_alignment', 0) < 3.5:
+        comm_style = persona.get('communication_style', '专业沟通')
+        recommendations.append(f"👥 用户匹配度有待改善：优化语言风格以适应{comm_style}，匹配{persona.get('experience_level', '用户经验水平')}")
     
-    if avg_scores.get('goal_alignment', 0) < 3.5:
-        recommendations.append("🎯 目标对齐度需要改进：确保回答能够满足用户的实际业务需求")
+    if dimension_averages.get('goal_alignment', 0) < 3.5:
+        core_functions = requirements.get('core_functions', [])
+        function_context = f"，重点关注{', '.join(core_functions[:2])}" if core_functions else ""
+        recommendations.append(f"🎯 业务目标对齐度需要改进：确保回答能够满足{context.get('business_domain', '业务')}的实际需求{function_context}")
     
-    # Add persona-specific recommendations
-    if user_persona_info:
-        persona = user_persona_info.get('user_persona', {})
-        usage_context = user_persona_info.get('usage_context', {})
-        
-        if persona.get('work_environment'):
-            recommendations.append(f"🏢 环境适配建议：针对{persona['work_environment']}环境，优化回答的实用性和可操作性")
-        
-        pain_points = usage_context.get('pain_points', [])
-        if pain_points:
-            recommendations.append(f"⚡ 痛点解决：重点关注{', '.join(pain_points[:2])}等用户痛点问题")
+    # Add persona-specific targeted recommendations
+    role = persona.get('role', '')
+    work_env = persona.get('work_environment', '')
     
-    return recommendations
+    if '客服' in role:
+        recommendations.append(f"🎧 客服场景优化：针对{work_env}环境，提升响应效率和标准化回答")
+        quality_expectations = requirements.get('quality_expectations', [])
+        if quality_expectations:
+            recommendations.append(f"⏱️ 服务质量提升：重点满足{', '.join(quality_expectations[:2])}等客服质量要求")
+    elif '工程师' in role or '监理' in role:
+        recommendations.append(f"🔧 技术专业性：加强对{work_env}环境下技术规范和标准的支持")
+        if '规范' in str(context.get('primary_scenarios', [])):
+            recommendations.append("📋 规范查询优化：增强对技术标准和施工规范的快速检索和解释能力")
+    elif '管理' in role:
+        recommendations.append("📊 管理决策支持：提供更多数据分析和决策建议功能")
+    
+    # Add interaction preference recommendations
+    interaction_goals = context.get('interaction_goals', [])
+    if interaction_goals:
+        recommendations.append(f"🎯 交互目标优化：重点提升{', '.join(interaction_goals[:2])}的实现效果")
+    
+    # Quality expectations based recommendations  
+    quality_expectations = requirements.get('quality_expectations', [])
+    if quality_expectations:
+        recommendations.append(f"⭐ 质量标准对齐：确保达到{', '.join(quality_expectations[:2])}等质量期望")
+    
+    # Limit to 6-8 most relevant recommendations
+    unique_recommendations = list(dict.fromkeys(recommendations))
+    return unique_recommendations[:8]
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -599,8 +1057,43 @@ async def evaluate_agent_with_file(
         # Parse API configuration
         try:
             api_config_dict = json.loads(agent_api_config)
+            
+            # Debug: log the received configuration structure
+            print(f"🔍 Received API config structure: {json.dumps(api_config_dict, indent=2)}")
+            
+            # Check if the config is wrapped in an extra layer (common frontend issue)
+            if isinstance(api_config_dict, dict):
+                # Look for common wrapping patterns
+                if 'config' in api_config_dict and isinstance(api_config_dict['config'], dict):
+                    print("⚠️ Detected config wrapped in 'config' key, unwrapping...")
+                    api_config_dict = api_config_dict['config']
+                elif 'headers' in api_config_dict and 'url' in api_config_dict.get('headers', {}):
+                    print("⚠️ Detected config wrapped in 'headers' key, unwrapping...")
+                    api_config_dict = api_config_dict['headers']
+                elif 'api_config' in api_config_dict and isinstance(api_config_dict['api_config'], dict):
+                    print("⚠️ Detected config wrapped in 'api_config' key, unwrapping...")
+                    api_config_dict = api_config_dict['api_config']
+            
+            # Additional data cleaning for common frontend issues
+            if isinstance(api_config_dict, dict):
+                # Ensure timeout is an integer
+                if 'timeout' in api_config_dict:
+                    try:
+                        api_config_dict['timeout'] = int(api_config_dict['timeout'])
+                    except (ValueError, TypeError):
+                        api_config_dict['timeout'] = 30
+                
+                # Ensure headers is a dictionary
+                if 'headers' in api_config_dict and not isinstance(api_config_dict['headers'], dict):
+                    print(f"⚠️ Invalid headers format: {type(api_config_dict['headers'])}, resetting to empty dict")
+                    api_config_dict['headers'] = {}
+            
+            print(f"🔧 Cleaned API config: {json.dumps(api_config_dict, indent=2)}")
+            
             api_config = APIConfig(**api_config_dict)
         except Exception as e:
+            print(f"❌ API config parsing failed: {str(e)}")
+            print(f"❌ Original config string: {agent_api_config}")
             raise HTTPException(status_code=400, detail=f"API配置解析失败: {str(e)}")
         
         # Handle requirement document
@@ -738,6 +1231,7 @@ async def evaluate_agent_dynamic(
     4. Generate comprehensive final report
     """
     try:
+        logger.info("🚀 Starting dynamic evaluation...")
         print("🚀============================================================🚀")
         print("   AI Agent 动态对话评估平台 v4.0")
         print("🚀============================================================🚀")
@@ -745,8 +1239,45 @@ async def evaluate_agent_dynamic(
         # Parse API configuration
         try:
             api_config_dict = json.loads(agent_api_config)
+            
+            # Debug: log the received configuration structure
+            print(f"🔍 Received API config structure: {json.dumps(api_config_dict, indent=2)}")
+            logger.info(f"🔍 Received API config: {api_config_dict}")
+            
+            # Check if the config is wrapped in an extra layer (common frontend issue)
+            if isinstance(api_config_dict, dict):
+                # Look for common wrapping patterns
+                if 'config' in api_config_dict and isinstance(api_config_dict['config'], dict):
+                    print("⚠️ Detected config wrapped in 'config' key, unwrapping...")
+                    api_config_dict = api_config_dict['config']
+                elif 'headers' in api_config_dict and 'url' in api_config_dict.get('headers', {}):
+                    print("⚠️ Detected config wrapped in 'headers' key, unwrapping...")
+                    api_config_dict = api_config_dict['headers']
+                elif 'api_config' in api_config_dict and isinstance(api_config_dict['api_config'], dict):
+                    print("⚠️ Detected config wrapped in 'api_config' key, unwrapping...")
+                    api_config_dict = api_config_dict['api_config']
+            
+            # Additional data cleaning for common frontend issues
+            if isinstance(api_config_dict, dict):
+                # Ensure timeout is an integer
+                if 'timeout' in api_config_dict:
+                    try:
+                        api_config_dict['timeout'] = int(api_config_dict['timeout'])
+                    except (ValueError, TypeError):
+                        api_config_dict['timeout'] = 30
+                
+                # Ensure headers is a dictionary
+                if 'headers' in api_config_dict and not isinstance(api_config_dict['headers'], dict):
+                    print(f"⚠️ Invalid headers format: {type(api_config_dict['headers'])}, resetting to empty dict")
+                    api_config_dict['headers'] = {}
+            
+            print(f"🔧 Cleaned API config: {json.dumps(api_config_dict, indent=2)}")
+            
             api_config = APIConfig(**api_config_dict)
+            logger.info(f"✅ API config parsed successfully: {api_config.type}")
         except Exception as e:
+            logger.error(f"❌ API config parsing failed: {str(e)}")
+            logger.error(f"❌ Original config string: {agent_api_config}")
             raise HTTPException(status_code=400, detail=f"API配置解析失败: {str(e)}")
         
         # Handle requirement document
@@ -754,87 +1285,196 @@ async def evaluate_agent_dynamic(
         user_persona_info = None
         
         # Step 1: Process requirement document and extract persona
-        if requirement_file and requirement_file.filename:
-            print(f"📄 Processing uploaded file: {requirement_file.filename}")
-            requirement_context = await process_uploaded_document_improved(requirement_file)
-        elif requirement_text:
-            requirement_context = requirement_text
-        
-        if not requirement_context:
-            raise HTTPException(status_code=400, detail="请提供需求文档或文本内容")
+        try:
+            if requirement_file and requirement_file.filename:
+                logger.info(f"📄 Processing uploaded file: {requirement_file.filename}")
+                print(f"📄 Processing uploaded file: {requirement_file.filename}")
+                requirement_context = await process_uploaded_document_improved(requirement_file)
+            elif requirement_text:
+                logger.info("📝 Using provided text content")
+                requirement_context = requirement_text
+            
+            if not requirement_context:
+                raise HTTPException(status_code=400, detail="请提供需求文档或文本内容")
+                
+            logger.info(f"✅ Document processed, length: {len(requirement_context)} characters")
+        except Exception as e:
+            logger.error(f"❌ Document processing failed: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"文档处理失败: {str(e)}")
         
         # Step 2: Extract user persona from requirement document using DeepSeek
-        if extracted_persona:
-            try:
-                user_persona_info = json.loads(extracted_persona)
-                print(f"🎭 使用提取的用户画像: {user_persona_info.get('user_persona', {}).get('role', '未知角色')}")
-            except:
-                print("⚠️ 画像数据解析失败，重新提取...")
-                user_persona_info = None
-        
-        if not user_persona_info:
-            print("🧠 从需求文档中提取用户画像...")
-            user_persona_info = await extract_user_persona_with_deepseek(requirement_context)
+        try:
+            if extracted_persona:
+                try:
+                    user_persona_info = json.loads(extracted_persona)
+                    logger.info(f"🎭 Using provided persona: {user_persona_info.get('user_persona', {}).get('role', '未知角色')}")
+                    print(f"🎭 使用提取的用户画像: {user_persona_info.get('user_persona', {}).get('role', '未知角色')}")
+                except Exception as pe:
+                    logger.warning(f"⚠️ Persona parsing failed: {str(pe)}")
+                    print("⚠️ 画像数据解析失败，重新提取...")
+                    user_persona_info = None
+            
             if not user_persona_info:
-                raise HTTPException(status_code=400, detail="无法从需求文档中提取有效的用户画像信息")
+                logger.info("🧠 Extracting user persona from document...")
+                print("🧠 从需求文档中提取用户画像...")
+                user_persona_info = await extract_user_persona_with_deepseek(requirement_context)
+                if not user_persona_info:
+                    raise HTTPException(status_code=400, detail="无法从需求文档中提取有效的用户画像信息")
+                    
+            logger.info("✅ User persona extracted successfully")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Persona extraction failed: {str(e)}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"用户画像提取失败: {str(e)}")
         
         # Step 3: Conduct dynamic multi-scenario evaluation
-        print("🎯 开始动态多轮对话评估...")
-        evaluation_results = await conduct_dynamic_multi_scenario_evaluation(
-            api_config, user_persona_info, requirement_context
-        )
-        
-        if not evaluation_results:
-            raise HTTPException(status_code=500, detail="动态对话评估失败，请检查AI Agent配置")
+        try:
+            logger.info("🎯 Starting dynamic conversation evaluation...")
+            print("🎯 开始动态多轮对话评估...")
+            evaluation_results = await conduct_dynamic_multi_scenario_evaluation(
+                api_config, user_persona_info, requirement_context
+            )
+            
+            if not evaluation_results:
+                raise HTTPException(status_code=500, detail="动态对话评估失败，请检查AI Agent配置")
+                
+            logger.info(f"✅ Evaluation completed with {len(evaluation_results)} scenarios")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Evaluation failed: {str(e)}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"动态对话评估失败: {str(e)}")
         
         # Step 4: Generate comprehensive final report
-        print("📊 生成综合评估报告...")
-        comprehensive_report = await generate_final_comprehensive_report(
-            evaluation_results, user_persona_info, requirement_context
-        )
+        try:
+            logger.info("📊 Generating comprehensive report...")
+            print("📊 生成综合评估报告...")
+            comprehensive_report = await generate_final_comprehensive_report(
+                evaluation_results, user_persona_info, requirement_context
+            )
+            logger.info("✅ Report generated successfully")
+        except Exception as e:
+            logger.error(f"❌ Report generation failed: {str(e)}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            # Use fallback report generation
+            comprehensive_report = {
+                "improvement_recommendations": ["系统建议：加强对话理解能力", "系统建议：提高回答准确性"],
+                "extracted_persona_summary": user_persona_info,
+                "persona_alignment_analysis": "基于系统分析生成",
+                "business_goal_achievement": "评估完成"
+            }
         
         # Calculate overall summary
-        overall_score = sum(r.get('scenario_score', 0) for r in evaluation_results) / len(evaluation_results) if evaluation_results else 0
-        total_conversations = sum(len(r.get('conversation_history', [])) for r in evaluation_results)
-        
-        response_data = {
-            "evaluation_summary": {
-                "overall_score": overall_score,
-                "total_scenarios": len(evaluation_results),
-                "total_conversations": total_conversations,
-                "framework": "动态多轮对话评估",
-                "comprehensive_analysis": comprehensive_report,
-                "extracted_persona_display": {
-                    "user_role": user_persona_info.get('user_persona', {}).get('role', '专业用户'),
-                    "business_domain": user_persona_info.get('usage_context', {}).get('business_domain', '专业服务'),
-                    "experience_level": user_persona_info.get('user_persona', {}).get('experience_level', '中等经验'),
-                    "communication_style": user_persona_info.get('user_persona', {}).get('communication_style', '专业沟通'),
-                    "work_environment": user_persona_info.get('user_persona', {}).get('work_environment', '专业工作环境'),
-                    "extraction_method": "DeepSeek智能提取分析"
-                }
-            },
-            "conversation_records": evaluation_results,
-            "recommendations": comprehensive_report.get('improvement_recommendations', []),
-            "extracted_persona_full": comprehensive_report.get('extracted_persona_summary', {}),
-            "persona_alignment_analysis": comprehensive_report.get('persona_alignment_analysis', ''),
-            "business_goal_achievement": comprehensive_report.get('business_goal_achievement', ''),
-            "evaluation_mode": "dynamic",
-            "user_persona_info": user_persona_info,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        print(f"🎯 动态评估完成！综合得分: {overall_score:.2f}/5.0")
-        print(f"📊 评估场景: {len(evaluation_results)} 个")
-        print(f"💬 对话轮次: {total_conversations} 轮")
-        print(f"🎭 用户画像: {user_persona_info.get('user_persona', {}).get('role', '未知角色')}")
-        
-        return response_data
+        try:
+            # Calculate from scenario scores (which are now in 5-point scale)
+            overall_score_5 = sum(r.get('scenario_score', 0) for r in evaluation_results) / len(evaluation_results) if evaluation_results else 0
+            overall_score_100 = sum(r.get('scenario_score_100', 0) for r in evaluation_results) / len(evaluation_results) if evaluation_results else 0
+            total_conversations = sum(len(r.get('conversation_history', [])) for r in evaluation_results)
+            
+            # Generate comprehensive evaluation summary  
+            evaluation_summary = generate_evaluation_summary(evaluation_results, requirement_context)
+            
+            response_data = {
+                "evaluation_summary": {
+                    "overall_score": round(overall_score_5, 2),  # Keep for compatibility
+                    "overall_score_100": round(overall_score_100, 2),  # Primary 100-point scale
+                    "total_scenarios": len(evaluation_results),
+                    "total_conversations": total_conversations,
+                    "framework": "动态多轮对话评估 (100分制)",
+                    "dimension_scores_100": evaluation_summary.get("dimensions_100", {}),
+                    "dimension_scores": evaluation_summary.get("dimensions", {}),  # Keep for compatibility
+                    "comprehensive_analysis": comprehensive_report,
+                    "extracted_persona_display": {
+                        "user_role": user_persona_info.get('user_persona', {}).get('role', '专业用户'),
+                        "business_domain": user_persona_info.get('usage_context', {}).get('business_domain', '专业服务'),
+                        "experience_level": user_persona_info.get('user_persona', {}).get('experience_level', '中等经验'),
+                        "communication_style": user_persona_info.get('user_persona', {}).get('communication_style', '专业沟通'),
+                        "work_environment": user_persona_info.get('user_persona', {}).get('work_environment', '专业工作环境'),
+                        "primary_scenarios": user_persona_info.get('usage_context', {}).get('primary_scenarios', ['专业咨询']),
+                        "pain_points": user_persona_info.get('usage_context', {}).get('pain_points', ['信息获取']),
+                        "core_functions": user_persona_info.get('extracted_requirements', {}).get('core_functions', ['信息查询']),
+                        "quality_expectations": user_persona_info.get('extracted_requirements', {}).get('quality_expectations', ['准确性']),
+                        "extraction_method": "DeepSeek智能提取分析",
+                        "document_length": len(requirement_context) if requirement_context else 0
+                    },
+                    "scoring_system": {
+                        "scale": "0-100分制",
+                        "grade_levels": {
+                            "90-100": "优秀 (Excellent)",
+                            "80-89": "良好 (Good)", 
+                            "70-79": "中等 (Average)",
+                            "60-69": "及格 (Pass)",
+                            "50-59": "不及格 (Below Pass)",
+                            "0-49": "需要改进 (Needs Improvement)"
+                        }
+                    }
+                },
+                "conversation_records": evaluation_results,
+                "recommendations": comprehensive_report.get('improvement_recommendations', []),
+                "extracted_persona_full": comprehensive_report.get('extracted_persona_summary', {}),
+                "persona_alignment_analysis": comprehensive_report.get('persona_alignment_analysis', ''),
+                "business_goal_achievement": comprehensive_report.get('business_goal_achievement', ''),
+                "detailed_context_display": {
+                    "requirement_document_summary": {
+                        "content_length": len(requirement_context) if requirement_context else 0,
+                        "content_preview": requirement_context[:500] + "..." if requirement_context and len(requirement_context) > 500 else requirement_context,
+                        "analysis_basis": "基于上传的需求文档进行AI智能分析"
+                    },
+                    "evaluation_methodology": {
+                        "conversation_generation": "DeepSeek动态生成对话场景",
+                        "response_evaluation": "多维度100分制评估",
+                        "persona_matching": "基于文档提取的用户画像进行个性化测试"
+                    },
+                    "technical_details": {
+                        "api_type": "Dify API" if "/v1/chat-messages" in api_config.url else "Coze API" if "coze" in api_config.url.lower() else "自定义API",
+                        "conversation_turns": total_conversations,
+                        "evaluation_dimensions": len(evaluation_results[0].get('evaluation_scores', {})) if evaluation_results else 3
+                    }
+                },
+                "evaluation_mode": "dynamic",
+                "user_persona_info": user_persona_info,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            logger.info(f"🎯 Dynamic evaluation completed successfully! Score: {overall_score_100:.2f}/100.0")
+            print(f"🎯 动态评估完成！综合得分: {overall_score_100:.2f}/100.0")
+            print(f"📊 评估场景: {len(evaluation_results)} 个")
+            print(f"💬 对话轮次: {total_conversations} 轮")
+            print(f"🎭 用户画像: {user_persona_info.get('user_persona', {}).get('role', '未知角色')}")
+            
+            # Auto-save to database if enabled
+            if config.ENABLE_AUTO_SAVE:
+                try:
+                    session_id = await save_evaluation_to_database(response_data, requirement_context)
+                    if session_id:
+                        response_data["database_session_id"] = session_id
+                        print(f"💾 评估结果已自动保存到数据库，会话ID: {session_id}")
+                    else:
+                        print("⚠️ 数据库自动保存失败，但评估结果仍然可用")
+                except Exception as e:
+                    print(f"⚠️ 数据库保存异常，但不影响评估结果: {str(e)}")
+            
+            return response_data
+            
+        except Exception as e:
+            logger.error(f"❌ Response data assembly failed: {str(e)}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"响应数据组装失败: {str(e)}")
         
     except HTTPException:
+        # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        print(f"❌ Dynamic evaluation failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"动态评估过程出错: {str(e)}")
+        # Catch any other unexpected exceptions
+        logger.error(f"❌ Unexpected error in dynamic evaluation: {str(e)}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"动态评估过程出现意外错误: {str(e)}. 请检查服务器日志获取详细信息。"
+        )
 
 def enhance_scenario_with_persona(scenario: Dict, user_persona_info: Dict) -> Dict:
     """
@@ -933,6 +1573,7 @@ async def evaluate_single_conversation_scenario(
             },
             "conversation_history": conversation_history,
             "evaluation_scores": evaluation_scores,
+            "evaluation_scores_with_explanations": explanations,  # Add detailed explanations
             "explanations": explanations,
             "scenario_score": scenario_score,
             "evaluation_mode": evaluation_mode,
@@ -1041,2075 +1682,62 @@ async def perform_deepseek_evaluations(evaluation_prompts: Dict, base_context: s
 
 def generate_evaluation_summary(evaluation_results: List[Dict], requirement_context: str = "") -> Dict:
     """
-    Generate evaluation summary from results
+    Generate evaluation summary from results - 100-point scale normalized
     """
     if not evaluation_results:
         return {
-            "overall_score": 0.0,
+            "overall_score_100": 0.0,
+            "overall_score": 0.0,  # Keep for compatibility
             "total_scenarios": 0,
             "total_conversations": 0,
-            "framework": "评估失败",
-            "dimensions": {}
+            "framework": "AI Agent 4维度评估框架 (100分制)",
+            "dimensions_100": {},
+            "dimensions": {}  # Keep for compatibility
         }
         
-        # Calculate dimension averages
-    all_scores = {}
+    # Calculate dimension averages from 100-point scores
+    all_scores_100 = {}
     total_conversations = 0
     
     for result in evaluation_results:
+        # Use scenario_score_100 if available, fallback to converted scores
+        scenario_score_100 = result.get("scenario_score_100", 0)
+        if scenario_score_100 == 0:
+            # Convert from 5-point scale if needed
+            scenario_score_5 = result.get("scenario_score", 0)
+            scenario_score_100 = scenario_score_5 * 20 if scenario_score_5 <= 5 else scenario_score_5
+        
         scores = result.get("evaluation_scores", {})
         conversation_history = result.get("conversation_history", [])
         total_conversations += len(conversation_history)
         
         for dimension, score in scores.items():
-            if dimension not in all_scores:
-                all_scores[dimension] = []
-            all_scores[dimension].append(score)
+            if dimension not in all_scores_100:
+                all_scores_100[dimension] = []
+            # Ensure score is in 100-point scale
+            normalized_score = score * 20 if score <= 5 else score
+            all_scores_100[dimension].append(normalized_score)
     
-    # Calculate averages
-    dimension_averages = {}
-    for dimension, scores in all_scores.items():
-        dimension_averages[dimension] = sum(scores) / len(scores) if scores else 0
+    # Calculate averages in 100-point scale
+    dimension_averages_100 = {}
+    dimension_averages_5 = {}  # For compatibility
+    for dimension, scores in all_scores_100.items():
+        avg_100 = sum(scores) / len(scores) if scores else 0
+        dimension_averages_100[dimension] = round(avg_100, 2)
+        dimension_averages_5[dimension] = round(avg_100 / 20, 2)  # For compatibility
     
-    overall_score = sum(dimension_averages.values()) / len(dimension_averages) if dimension_averages else 0
+    overall_score_100 = sum(dimension_averages_100.values()) / len(dimension_averages_100) if dimension_averages_100 else 0
+    overall_score_5 = overall_score_100 / 20  # For compatibility
     
     return {
-            "overall_score": round(overall_score, 2),
+        "overall_score_100": round(overall_score_100, 2),
+        "overall_score": round(overall_score_5, 2),  # Keep for compatibility
         "total_scenarios": len(evaluation_results),
         "total_conversations": total_conversations,
-        "framework": "AI Agent 3维度评估框架",
-        "dimensions": dimension_averages
+        "framework": "AI Agent 4维度评估框架 (100分制)",
+        "dimensions_100": dimension_averages_100,
+        "dimensions": dimension_averages_5  # Keep for compatibility
     }
-
-def generate_enhanced_recommendations(evaluation_results: List[Dict], user_persona_info: Dict = None) -> List[str]:
-    """
-    Generate enhanced recommendations based on evaluation results and user persona
-    """
-    recommendations = []
-    
-    if not evaluation_results:
-        return [
-            "无法生成推荐建议，请先完成有效的评估",
-            "检查AI Agent配置和网络连接",
-            "确保对话场景配置正确"
-        ]
-    
-    # Analyze scores to identify weak areas
-    all_scores = {}
-    for result in evaluation_results:
-        scores = result.get("evaluation_scores", {})
-        for dimension, score in scores.items():
-            if dimension not in all_scores:
-                all_scores[dimension] = []
-            all_scores[dimension].append(score)
-    
-    # Calculate averages and identify weak points
-    weak_areas = []
-    for dimension, scores in all_scores.items():
-        avg_score = sum(scores) / len(scores) if scores else 0
-        if avg_score < 3.0:
-            weak_areas.append((dimension, avg_score))
-    
-    # Sort by score (weakest first)
-    weak_areas.sort(key=lambda x: x[1])
-    
-    # Generate specific recommendations based on weak areas
-    dimension_recommendations = {
-        "fuzzy_understanding": [
-            "加强AI对模糊问题的理解能力",
-            "增强主动追问和澄清需求的机制",
-            "提高对用户意图的推理准确性"
-        ],
-        "answer_correctness": [
-            "提升回答的准确性和专业度",
-            "加强知识库的完整性和时效性",
-            "增加规范和标准的引用支持"
-        ],
-        "persona_alignment": [
-            "优化AI的沟通风格适配能力",
-            "根据用户背景调整回答的复杂度",
-            "提高对不同用户群体的个性化服务"
-        ],
-        "goal_alignment": [
-            "更好地理解和对齐业务目标",
-            "增强对需求文档的深度理解",
-            "提高解决方案的针对性和实用性"
-        ]
-    }
-    
-    # Add recommendations for weak areas
-    for dimension, score in weak_areas[:3]:  # Focus on top 3 weak areas
-        if dimension in dimension_recommendations:
-            recommendations.extend(dimension_recommendations[dimension])
-    
-    # Add persona-specific recommendations if available
-    if user_persona_info:
-        persona = user_persona_info.get('user_persona', {})
-        role = persona.get('role', '')
-        
-        if '工程师' in role:
-            recommendations.append("增强对技术规范和标准的引用能力")
-        elif '客服' in role:
-            recommendations.append("优化客户服务场景的响应效率")
-        elif '管理' in role:
-            recommendations.append("提供更多决策支持和数据分析")
-        
-        communication_style = persona.get('communication_style', '')
-        if '简洁' in communication_style:
-            recommendations.append("优化回答的简洁性，突出核心要点")
-        elif '详细' in communication_style:
-            recommendations.append("提供更详细的解释和背景信息")
-    
-    # Add general improvement suggestions
-    if len(recommendations) < 3:
-        recommendations.extend([
-            "加强多轮对话的上下文理解能力",
-            "提高回答的逻辑性和结构化程度",
-            "增强对特殊情况和边界条件的处理"
-        ])
-    
-    # Limit to 5 recommendations and ensure uniqueness
-    unique_recommendations = list(dict.fromkeys(recommendations))
-    return unique_recommendations[:5]
-
-# Keep the old API endpoint for backward compatibility
-@app.post("/api/evaluate-agent")
-async def evaluate_agent_legacy(request: dict):
-    """
-    Legacy API endpoint for backward compatibility
-    """
-    try:
-        print("🔄 Legacy API endpoint called, redirecting to new implementation...")
-        
-        # Convert old format to new format
-        agent_api_config = json.dumps(request.get("agent_api", {}))
-        requirement_doc = request.get("requirement_doc", "")
-        conversation_scenarios = json.dumps(request.get("conversation_scenarios", []))
-        
-        # Call the new implementation
-        return await evaluate_agent_with_file(
-            agent_api_config=agent_api_config,
-            requirement_file=None,
-            requirement_text=requirement_doc,
-            conversation_scenarios=conversation_scenarios,
-            coze_bot_id=request.get("coze_bot_id"),
-            evaluation_mode="manual",
-            extracted_persona=None
-        )
-        
-    except Exception as e:
-        print(f"❌ Legacy API call failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Legacy API evaluation failed: {str(e)}")
-
-# Temporary endpoint for Coze compatibility (will be phased out)
-@app.post("/evaluate-coze-auto")
-async def evaluate_coze_auto(bot_id: str = None):
-    """Temporary Coze compatibility endpoint"""
-    try:
-        # Import the legacy function temporarily
-        from coze_auto_test import run_simplified_evaluation
-        
-        report = await run_simplified_evaluation(bot_id)
-        
-        # Return in the format expected by current frontend
-        return {
-            "success": True,
-            "report": report,  # This contains evaluation_summary
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
-
-@app.get("/api/schema")
-async def get_api_schema():
-    """Get API schema for integration"""
-    return {
-        "evaluation_request_example": {
-            "agent_api": {
-                "type": "http",
-                "url": "https://your-agent.com/api/converse",
-                "method": "POST"
-            },
-            "requirement_doc": "在墙面抹灰检测任务中，AI应识别出用户模糊描述并主动引导补充面积、位置、责任方等字段...",
-            "conversation_scenarios": [
-                {
-                    "title": "高层建筑墙面空鼓问题",
-                    "turns": [
-                        "三楼有个地方空鼓了",
-                        "是墙面",
-                        "差不多两平米"
-                    ]
-                }
-            ]
-        },
-        "response_format": {
-            "evaluation_summary": {
-                "overall_score": 4.67,
-                "dimensions": {
-                    "fuzzy_understanding": 5,
-                    "answer_correctness": 4,
-                    "persona_alignment": 5,
-                    "goal_alignment": 4
-                }
-            }
-        }
-    }
-
-def find_available_port(start_port: int = 8000, max_port: int = 8010) -> int:
-    """Find an available port starting from start_port"""
-    for port in range(start_port, max_port + 1):
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = sock.connect_ex(('localhost', port))
-            sock.close()
-            if result != 0:
-                return port
-        except:
-            continue
-    return start_port
-
-async def call_coze_agent_api(agent_id: str, access_token: str, message: str, region: str = "global") -> str:
-    """Call Coze Agent API using v3 endpoint with polling for completion"""
-    max_retries = 3
-    
-    # Determine API base URL - fix region detection
-    base_url = "https://api.coze.cn" if region == "china" else "https://api.coze.com"
-    print(f"🌍 Using region: {region}, base URL: {base_url}")
-    
-    for attempt in range(max_retries):
-        try:
-            chat_url = f"{base_url}/v3/chat"
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            }
-            
-            # Fix: Use proper agent_id instead of bot_id for v3 chat
-            payload = {
-                "bot_id": agent_id,  # This is correct for v3 API - bot_id is used for both bots and agents
-                "user_id": f"test_user_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                "stream": False,
-                "auto_save_history": True,
-                "additional_messages": [
-                    {
-                        "role": "user",
-                        "content": message,
-                        "content_type": "text"
-                    }
-                ]
-            }
-            
-            print(f"🔄 Coze Agent API 调用尝试 {attempt + 1}/{max_retries}")
-            print(f"📍 URL: {chat_url}")
-            print(f"🤖 Agent ID: {agent_id}")
-            print(f"🔑 Token: {access_token[:20]}...")
-            
-            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-                # Start conversation
-                response = await client.post(chat_url, headers=headers, json=payload)
-                
-                print(f"📡 Response status: {response.status_code}")
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    print(f"✅ Coze Agent API 响应: {result}")
-                    
-                    if result.get("code") == 0 and "data" in result:
-                        conversation_id = result["data"].get("conversation_id")
-                        chat_id = result["data"].get("id")
-                        status = result["data"].get("status")
-                        
-                        print(f"💬 对话ID: {conversation_id}")
-                        print(f"📝 聊天ID: {chat_id}")
-                        print(f"📊 状态: {status}")
-                        
-                        # Use the working GET endpoint for message retrieval
-                        messages_url = f"{base_url}/v1/conversation/message/list?conversation_id={conversation_id}&chat_id={chat_id}"
-                        
-                        # If status is completed, try to get messages immediately
-                        if status == "completed":
-                            print("🎉 对话已完成，获取消息...")
-                            messages_response = await client.get(messages_url, headers=headers)
-                            
-                            if messages_response.status_code == 200:
-                                messages_result = messages_response.json()
-                                if messages_result.get("code") == 0 and "data" in messages_result:
-                                    messages = messages_result["data"]
-                                    for msg in messages:
-                                        if msg.get("role") == "assistant":
-                                            content = msg.get("content", "")
-                                            if content and len(content.strip()) > 0:
-                                                print(f"✅ Coze Agent 成功响应")
-                                                return content
-                        
-                        elif status == "in_progress":
-                            # Enhanced polling for completion - increased for workflow-based agents
-                            print("⏳ 对话处理中，开始轮询...")
-                            max_polls = 40  # Increase to 40 polls for workflow agents
-                            poll_interval = 4  # Increase to 4 seconds for better stability
-                            
-                            for poll in range(max_polls):
-                                await asyncio.sleep(poll_interval)
-                                
-                                # Get messages using the working GET endpoint
-                                messages_response = await client.get(messages_url, headers=headers)
-                                print(f"📋 轮询 {poll + 1}/{max_polls}: {messages_response.status_code}")
-                                
-                                if messages_response.status_code == 200:
-                                    messages_result = messages_response.json()
-                                    
-                                    if messages_result.get("code") == 0 and "data" in messages_result:
-                                        messages = messages_result["data"]
-                                        print(f"📋 找到 {len(messages)} 条消息")
-                                        
-                                        # Look for assistant response
-                                        for msg in messages:
-                                            if msg.get("role") == "assistant":
-                                                content = msg.get("content", "")
-                                                msg_type = msg.get("type", "")
-                                                print(f"📝 助手消息类型: {msg_type}, 内容长度: {len(content)}")
-                                                
-                                                # Accept any non-empty content from assistant
-                                                if content and len(content.strip()) > 0:
-                                                    print(f"✅ Coze Agent 轮询成功响应")
-                                                    return content
-                                        
-                                        # Check if there are any error messages
-                                        for msg in messages:
-                                            if msg.get("type") == "error":
-                                                error_content = msg.get("content", "")
-                                                print(f"❌ 发现错误消息: {error_content}")
-                                                return f"Agent处理失败: {error_content}"
-                                    else:
-                                        error_code = messages_result.get("code", "unknown")
-                                        error_msg = messages_result.get("msg", "unknown error")
-                                        print(f"❌ 消息列表API错误: code={error_code}, msg={error_msg}")
-                                else:
-                                    print(f"❌ 消息列表API HTTP错误: {messages_response.status_code}")
-                                
-                                # Check if we should continue polling
-                                if poll >= max_polls - 1:
-                                    print("⏰ 轮询超时，尝试重试...")
-                                    break
-                            
-                            # If agent didn't respond, try fallback to Coze Bot API
-                            print("🔄 Agent未响应，尝试使用Coze Bot API作为备用...")
-                            fallback_response = await call_coze_api_fallback(message, "7511993619423985674")
-                            if fallback_response and "API调用失败" not in fallback_response:
-                                print("✅ Coze Bot API备用成功")
-                                return f"[备用Bot回复] {fallback_response}"
-                            else:
-                                print("❌ 备用API也失败")
-                                return "Agent和备用Bot都未能响应，请检查配置"
-                        
-                        elif status == "failed":
-                            error_msg = result["data"].get("last_error", {}).get("msg", "未知错误")
-                            print(f"❌ 对话失败: {error_msg}")
-                            return f"对话失败: {error_msg}"
-                    
-                    elif result.get("code") != 0:
-                        error_msg = result.get("msg", "API调用失败")
-                        print(f"❌ API错误: {error_msg}")
-                        return f"API错误: {error_msg}"
-                    
-                    print(f"⚠️ Coze Agent API 未能获取有效响应")
-                else:
-                    response_text = response.text
-                    print(f"⚠️ Coze Agent API HTTP错误: {response.status_code}")
-                    print(f"响应内容: {response_text}")
-                    
-                    # Parse error response if possible
-                    try:
-                        error_result = response.json()
-                        if "msg" in error_result:
-                            return f"API调用失败: {error_result['msg']}"
-                    except:
-                        pass
-                    
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                        continue
-                        
-        except Exception as e:
-            print(f"❌ Coze Agent API调用异常 (尝试 {attempt + 1}): {str(e)}")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                continue
-    
-    return "Coze Agent API调用失败，请检查Agent ID和Access Token是否正确"
-
-# Add new endpoint for user persona extraction
-@app.post("/api/extract-user-persona")
-async def extract_user_persona_from_document(
-    requirement_file: UploadFile = File(None),
-    requirement_text: str = Form(None)
-):
-    """
-    Extract user persona and context from requirement document using DeepSeek
-    Uses improved document processing approach with temporary files
-    """
-    try:
-        print("🔍============================================================🔍")
-        print("   用户画像提取服务 (DeepSeek智能分析) - 优化版本")
-        print("🔍============================================================🔍")
-        
-        # Extract requirement text
-        requirement_content = ""
-        
-        if requirement_file and requirement_file.filename:
-            print(f"📄 Processing uploaded file: {requirement_file.filename}")
-            
-            # Use improved document processing
-            requirement_content = await process_uploaded_document_improved(requirement_file)
-                
-        elif requirement_text and requirement_text.strip():
-            print("📝 Using provided text content")
-            requirement_content = requirement_text.strip()
-            # Clean the text using the same approach
-            requirement_content = requirement_content.replace("\r", "").replace("　", "").strip()
-            print(f"📄 文本内容长度: {len(requirement_content)} 字符")
-        else:
-            raise HTTPException(status_code=400, detail="请提供需求文档文件或文本内容")
-        
-        # Check if extraction was successful
-        if not requirement_content or requirement_content.strip() == "":
-            raise HTTPException(status_code=400, detail="文档内容提取失败或为空，请检查文件格式和内容")
-        
-        # Check for extraction errors
-        if "解析失败" in requirement_content or "处理失败" in requirement_content:
-            raise HTTPException(status_code=400, detail=f"文档处理错误: {requirement_content}")
-        
-        # Ensure minimum content length for meaningful analysis
-        if len(requirement_content.strip()) < 50:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"文档内容过短({len(requirement_content)}字符)，无法进行有效的用户画像分析。请提供更详细的需求文档（建议至少100字符）"
-            )
-        
-        print(f"📄 Document content successfully extracted: {len(requirement_content)} characters")
-        print(f"📄 Content preview: {requirement_content[:200]}...")
-        
-        # Call DeepSeek to extract user persona and context
-        extraction_result = await extract_user_persona_with_deepseek(requirement_content)
-        
-        print("✅ User persona extraction completed successfully")
-        return {
-            "success": True,
-            "extraction_result": extraction_result,
-            "document_preview": requirement_content[:300] + "..." if len(requirement_content) > 300 else requirement_content,
-            "document_length": len(requirement_content),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ User persona extraction failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"用户画像提取失败: {str(e)}")
-
-async def extract_user_persona_with_deepseek(requirement_content: str) -> Dict[str, Any]:
-    """
-    Use DeepSeek to extract user persona, context, and role information from requirement document
-    """
-    
-    extraction_prompt = f"""
-请仔细分析以下需求文档，提取用户画像信息。请务必严格按照JSON格式返回，不要添加任何其他文字。
-
-需求文档内容：
-{requirement_content}
-
-请返回以下格式的JSON（必须是有效的JSON格式，不要有任何额外文字）：
-
-{{
-    "user_persona": {{
-        "role": "具体用户角色，如：银行客服代表、现场监理工程师等",
-        "experience_level": "经验水平描述，如：2-8年客服经验、5年工程经验等", 
-        "expertise_areas": ["专业领域1", "专业领域2"],
-        "communication_style": "沟通风格，如：习惯使用专业术语、偏好简洁明了等",
-        "work_environment": "工作环境描述，如：呼叫中心、建筑工地现场等"
-    }},
-    "usage_context": {{
-        "primary_scenarios": ["主要使用场景1", "主要使用场景2"],
-        "business_domain": "业务领域，如：银行客服、工程监理等",
-        "interaction_goals": ["用户目标1", "用户目标2"],
-        "pain_points": ["痛点问题1", "痛点问题2"]
-    }},
-    "ai_role_simulation": {{
-        "simulated_user_type": "模拟用户类型的详细描述",
-        "conversation_approach": "对话方式，如：快速提问、详细咨询等", 
-        "language_characteristics": "语言特点，如：使用专业术语、口语化表达等",
-        "typical_questions": ["典型问题1", "典型问题2", "典型问题3"]
-    }},
-    "extracted_requirements": {{
-        "core_functions": ["核心功能需求1", "核心功能需求2"],
-        "quality_expectations": ["质量期望1", "质量期望2"],
-        "interaction_preferences": ["交互偏好1", "交互偏好2"]
-    }}
-}}
-
-重要：只返回JSON内容，不要有任何解释或其他文字。"""
-
-    try:
-        print("🧠 Calling DeepSeek API for user persona extraction...")
-        
-        response = await call_deepseek_api(extraction_prompt)
-        print(f"📝 DeepSeek raw response: {response[:200]}...")
-        
-        # Clean the response - remove any markdown formatting or extra text
-        cleaned_response = response.strip()
-        
-        # Remove markdown code blocks if present
-        if cleaned_response.startswith('```'):
-            lines = cleaned_response.split('\n')
-            cleaned_response = '\n'.join(lines[1:-1]) if len(lines) > 2 else cleaned_response
-        
-        # Remove any text before the first { and after the last }
-        start_idx = cleaned_response.find('{')
-        end_idx = cleaned_response.rfind('}')
-        
-        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-            json_str = cleaned_response[start_idx:end_idx+1]
-            
-            try:
-                extraction_result = json.loads(json_str)
-                print("✅ Successfully parsed extraction result from DeepSeek")
-                
-                # Validate the structure
-                required_keys = ['user_persona', 'usage_context', 'ai_role_simulation', 'extracted_requirements']
-                if all(key in extraction_result for key in required_keys):
-                    return extraction_result
-                else:
-                    print("⚠️ JSON structure incomplete, using fallback")
-                    
-            except json.JSONDecodeError as e:
-                print(f"⚠️ JSON parsing failed: {e}, trying alternative parsing...")
-        
-        # If JSON parsing fails, try to extract specific information from the response
-        print("📝 Creating enhanced structured response from text...")
-        return create_enhanced_extraction_result(response, requirement_content)
-        
-    except Exception as e:
-        print(f"❌ DeepSeek extraction error: {e}")
-        # Return a basic fallback result
-        return create_basic_fallback_result(requirement_content)
-
-def create_enhanced_extraction_result(response: str, requirement_content: str) -> Dict[str, Any]:
-    """
-    Create an enhanced structured result when JSON parsing fails but we have DeepSeek response
-    """
-    # Try to extract information from both the response and the original content
-    lines = response.split('\n') + requirement_content.split('\n')
-    
-    # Extract role information
-    role = extract_role_from_content(requirement_content) or extract_info_from_lines(lines, ["角色", "用户", "身份", "代表"]) or "专业用户"
-    
-    # Extract experience level
-    experience = extract_experience_from_content(requirement_content) or extract_info_from_lines(lines, ["经验", "年限", "水平"]) or "有经验用户"
-    
-    # Extract work environment
-    work_env = extract_work_environment_from_content(requirement_content) or extract_info_from_lines(lines, ["环境", "现场", "地点", "中心"]) or "专业工作环境"
-    
-    # Extract business domain
-    business_domain = extract_business_domain_from_content(requirement_content) or "专业服务"
-    
-    return {
-        "user_persona": {
-            "role": role,
-            "experience_level": experience,
-            "expertise_areas": extract_expertise_areas_from_content(requirement_content),
-            "communication_style": extract_communication_style_from_content(requirement_content),
-            "work_environment": work_env
-        },
-        "usage_context": {
-            "primary_scenarios": extract_scenarios_from_content(requirement_content),
-            "business_domain": business_domain,
-            "interaction_goals": extract_goals_from_content(requirement_content),
-            "pain_points": extract_pain_points_from_content(requirement_content)
-        },
-        "ai_role_simulation": {
-            "simulated_user_type": f"基于{business_domain}领域的{role}",
-            "conversation_approach": "结合实际工作场景的专业提问",
-            "language_characteristics": "专业术语与实际需求相结合",
-            "typical_questions": generate_typical_questions_from_content(requirement_content)
-        },
-        "extracted_requirements": {
-            "core_functions": extract_requirements_from_content(requirement_content),
-            "quality_expectations": extract_quality_expectations_from_content(requirement_content),
-            "interaction_preferences": extract_interaction_preferences_from_content(requirement_content)
-        }
-    }
-
-def extract_role_from_content(content: str) -> Optional[str]:
-    """Extract user role from content"""
-    role_patterns = [
-        r'用户群体[：:]\s*([^\n]+)',
-        r'主要用户[：:]\s*([^\n]+)',
-        r'目标用户[：:]\s*([^\n]+)',
-        r'用户角色[：:]\s*([^\n]+)'
-    ]
-    
-    for pattern in role_patterns:
-        match = re.search(pattern, content)
-        if match:
-            return match.group(1).strip()
-    
-    # Look for specific role mentions
-    if "客服" in content:
-        return "客服代表"
-    elif "监理" in content:
-        return "现场监理工程师"
-    elif "工程师" in content:
-        return "工程师"
-    elif "技术" in content:
-        return "技术人员"
-    
-    return None
-
-def extract_experience_from_content(content: str) -> Optional[str]:
-    """Extract experience level from content"""
-    exp_patterns = [
-        r'(\d+[-~]\d+年[^，。\n]*经验)',
-        r'(工作经验[：:][^，。\n]+)',
-        r'(经验水平[：:][^，。\n]+)'
-    ]
-    
-    for pattern in exp_patterns:
-        match = re.search(pattern, content)
-        if match:
-            return match.group(1).strip()
-    
-    return None
-
-def extract_work_environment_from_content(content: str) -> Optional[str]:
-    """Extract work environment from content"""
-    env_patterns = [
-        r'工作环境[：:]\s*([^，。\n]+)',
-        r'环境[：:]\s*([^，。\n]+)'
-    ]
-    
-    for pattern in env_patterns:
-        match = re.search(pattern, content)
-        if match:
-            return match.group(1).strip()
-    
-    # Look for specific environment mentions
-    if "呼叫中心" in content:
-        return "呼叫中心"
-    elif "现场" in content or "工地" in content:
-        return "施工现场"
-    elif "办公室" in content:
-        return "办公室环境"
-    
-    return None
-
-def extract_business_domain_from_content(content: str) -> str:
-    """Extract business domain from content"""
-    if "银行" in content or "金融" in content:
-        return "银行金融服务"
-    elif "建筑" in content or "工程" in content:
-        return "建筑工程"
-    elif "客服" in content:
-        return "客户服务"
-    elif "技术" in content:
-        return "技术支持"
-    else:
-        return "专业服务"
-
-def extract_expertise_areas_from_content(content: str) -> List[str]:
-    """Extract expertise areas from content"""
-    areas = []
-    
-    if "客服" in content:
-        areas.extend(["客户服务", "业务咨询"])
-    if "金融" in content or "银行" in content:
-        areas.extend(["金融产品", "银行业务"])
-    if "工程" in content or "建筑" in content:
-        areas.extend(["工程技术", "质量管理"])
-    if "技术" in content:
-        areas.extend(["技术支持", "系统操作"])
-    
-    return areas if areas else ["专业技术", "行业知识"]
-
-def extract_communication_style_from_content(content: str) -> str:
-    """Extract communication style from content"""
-    if "专业术语" in content:
-        return "习惯使用专业术语"
-    elif "简洁" in content or "快速" in content:
-        return "偏好简洁明了的沟通"
-    elif "结构化" in content or "条理" in content:
-        return "偏好结构化、条理清晰的回答"
-    else:
-        return "专业术语与通俗解释结合"
-
-def extract_scenarios_from_content(content: str) -> List[str]:
-    """Extract primary scenarios from content"""
-    scenarios = []
-    
-    # Look for numbered lists or bullet points
-    scenario_patterns = [
-        r'\d+\.\s*([^\n]+)',
-        r'-\s*([^\n]+场景[^\n]*)',
-        r'•\s*([^\n]+)'
-    ]
-    
-    for pattern in scenario_patterns:
-        matches = re.findall(pattern, content)
-        scenarios.extend([match.strip() for match in matches[:3]])  # Limit to 3
-    
-    if not scenarios:
-        if "查询" in content:
-            scenarios.append("信息查询")
-        if "咨询" in content:
-            scenarios.append("业务咨询")
-        if "问题解决" in content or "处理" in content:
-            scenarios.append("问题解决")
-    
-    return scenarios if scenarios else ["技术咨询", "问题解决"]
-
-def extract_goals_from_content(content: str) -> List[str]:
-    """Extract interaction goals from content"""
-    goals = []
-    
-    if "准确" in content:
-        goals.append("获取准确信息")
-    if "快速" in content or "迅速" in content:
-        goals.append("快速响应")
-    if "解决" in content:
-        goals.append("解决实际问题")
-    if "效率" in content:
-        goals.append("提高工作效率")
-    
-    return goals if goals else ["获取准确信息", "解决实际问题"]
-
-def extract_pain_points_from_content(content: str) -> List[str]:
-    """Extract pain points from content"""
-    pain_points = []
-    
-    if "响应时间" in content or "慢" in content:
-        pain_points.append("响应速度慢")
-    if "准确" in content:
-        pain_points.append("信息不够准确")
-    if "压力" in content:
-        pain_points.append("工作压力大")
-    if "复杂" in content:
-        pain_points.append("操作过于复杂")
-    
-    return pain_points if pain_points else ["信息获取困难", "响应不及时"]
-
-def extract_quality_expectations_from_content(content: str) -> List[str]:
-    """Extract quality expectations from content"""
-    expectations = []
-    
-    if "准确率" in content or "95%" in content:
-        expectations.append("高准确率(95%以上)")
-    if "响应时间" in content or "3秒" in content:
-        expectations.append("快速响应(3秒内)")
-    if "合规" in content:
-        expectations.append("符合合规要求")
-    
-    return expectations if expectations else ["高准确性", "快速响应", "专业可靠"]
-
-def extract_interaction_preferences_from_content(content: str) -> List[str]:
-    """Extract interaction preferences from content"""
-    preferences = []
-    
-    if "结构化" in content:
-        preferences.append("结构化回答")
-    if "条理" in content:
-        preferences.append("条理清晰")
-    if "模板" in content:
-        preferences.append("标准化模板")
-    if "语音" in content:
-        preferences.append("支持语音输入")
-    
-    return preferences if preferences else ["清晰明了", "逻辑清楚", "实用可行"]
-
-def generate_typical_questions_from_content(content: str) -> List[str]:
-    """Generate typical questions based on content analysis"""
-    questions = []
-    
-    if "账户" in content:
-        questions.append("客户账户余额怎么查询？")
-    if "产品" in content:
-        questions.append("这个金融产品的特点是什么？")
-    if "流程" in content:
-        questions.append("业务办理流程是怎样的？")
-    if "工程" in content:
-        questions.append("这个质量问题怎么处理？")
-    if "规范" in content:
-        questions.append("相关规范要求是什么？")
-    
-    return questions if questions else ["这个问题怎么解决？", "有什么需要注意的？", "能详细说明一下吗？"]
-
-def extract_info_from_lines(lines: List[str], keywords: List[str]) -> Optional[str]:
-    """
-    Extract information from text lines based on keywords
-    """
-    for line in lines:
-        for keyword in keywords:
-            if keyword in line:
-                # Try to extract the content after the keyword
-                parts = line.split(':', 1)
-                if len(parts) > 1:
-                    return parts[1].strip()
-                # Try to extract content after common separators
-                for sep in ['：', '是', '为']:
-                    if sep in line:
-                        parts = line.split(sep, 1)
-                        if len(parts) > 1:
-                            return parts[1].strip()
-    return None
-
-def extract_requirements_from_content(content: str) -> List[str]:
-    """
-    Extract core requirements from document content
-    """
-    requirements = []
-    
-    # Look for common requirement indicators
-    requirement_keywords = ['功能', '需求', '要求', '目标', '期望']
-    lines = content.split('\n')
-    
-    for line in lines:
-        line = line.strip()
-        if any(keyword in line for keyword in requirement_keywords) and len(line) > 10:
-            requirements.append(line[:100])  # Limit length
-            if len(requirements) >= 3:  # Limit to 3 requirements
-                break
-    
-    if not requirements:
-        requirements = ["AI系统核心功能需求", "用户交互体验优化", "准确性和可靠性保障"]
-    
-    return requirements
-
-def create_basic_fallback_result(requirement_content: str) -> Dict[str, Any]:
-    """
-    Create a basic fallback result when extraction completely fails
-    """
-    return {
-        "user_persona": {
-            "role": "专业用户",
-            "experience_level": "中等经验水平",
-            "expertise_areas": ["专业技术", "行业知识"],
-            "communication_style": "专业与通俗并重",
-            "work_environment": "专业工作场所"
-        },
-        "usage_context": {
-            "primary_scenarios": ["技术咨询", "问题解决", "信息查询"],
-            "business_domain": "专业服务",
-            "interaction_goals": ["获取准确信息", "解决实际问题", "提高工作效率"],
-            "pain_points": ["信息获取困难", "回答不够专业", "响应速度慢"]
-        },
-        "ai_role_simulation": {
-            "simulated_user_type": "具有一定专业背景的实际用户",
-            "conversation_approach": "结合实际工作场景的自然提问",
-            "language_characteristics": "专业术语与日常语言结合",
-            "typical_questions": ["这个问题怎么解决？", "有什么需要注意的地方？", "能详细说明一下吗？"]
-        },
-        "extracted_requirements": {
-            "core_functions": ["核心功能实现", "用户体验优化", "专业准确性保障"],
-            "quality_expectations": ["高准确性", "良好响应速度", "专业可靠"],
-            "interaction_preferences": ["清晰易懂", "逻辑清楚", "实用可行"]
-        }
-    }
-
-async def generate_conversation_scenarios_from_persona(user_persona_info: Dict) -> List[Dict]:
-    """
-    Generate realistic conversation scenarios based on extracted user persona using DeepSeek
-    """
-    try:
-        persona = user_persona_info.get('user_persona', {})
-        usage_context = user_persona_info.get('usage_context', {})
-        ai_role = user_persona_info.get('ai_role_simulation', {})
-        
-        generation_prompt = f"""
-基于以下用户画像信息，请生成3个逼真的对话测试场景。每个场景应该：
-1. 体现该用户角色的实际工作需求
-2. 包含该用户的沟通风格和语言习惯
-3. 设计3-4轮渐进式对话，从模糊到具体
-
-用户画像信息：
-- 角色：{persona.get('role', '')}
-- 经验水平：{persona.get('experience_level', '')}
-- 工作环境：{persona.get('work_environment', '')}
-- 沟通风格：{persona.get('communication_style', '')}
-- 业务领域：{usage_context.get('business_domain', '')}
-- 主要场景：{', '.join(usage_context.get('primary_scenarios', []))}
-- 典型问题：{', '.join(ai_role.get('typical_questions', []))}
-
-请严格按照以下JSON格式返回（不要添加任何其他文字）：
-
-[
-  {{
-    "title": "场景1标题",
-    "context": "业务上下文描述",
-    "user_profile": "用户画像简述",
-    "turns": [
-      "第1轮：模糊或简短的问题",
-      "第2轮：补充信息或澄清",
-      "第3轮：进一步细节",
-      "第4轮：具体需求（可选）"
-    ]
-  }},
-  {{
-    "title": "场景2标题",
-    "context": "业务上下文描述",
-    "user_profile": "用户画像简述",
-    "turns": [
-      "第1轮：模糊或简短的问题",
-      "第2轮：补充信息或澄清",
-      "第3轮：进一步细节"
-    ]
-  }},
-  {{
-    "title": "场景3标题",
-    "context": "业务上下文描述",
-    "user_profile": "用户画像简述",
-    "turns": [
-      "第1轮：模糊或简短的问题",
-      "第2轮：补充信息或澄清",
-      "第3轮：进一步细节"
-    ]
-  }}
-]
-
-重要：只返回JSON数组，不要有任何解释或其他文字。"""
-
-        print("🎯 Generating conversation scenarios based on persona...")
-        response = await call_deepseek_api(generation_prompt)
-        
-        # Clean and parse the response
-        cleaned_response = response.strip()
-        
-        # Remove markdown code blocks if present
-        if cleaned_response.startswith('```'):
-            lines = cleaned_response.split('\n')
-            cleaned_response = '\n'.join(lines[1:-1]) if len(lines) > 2 else cleaned_response
-        
-        # Extract JSON array
-        start_idx = cleaned_response.find('[')
-        end_idx = cleaned_response.rfind(']')
-        
-        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-            json_str = cleaned_response[start_idx:end_idx+1]
-            
-            try:
-                scenarios = json.loads(json_str)
-                if isinstance(scenarios, list) and len(scenarios) > 0:
-                    print(f"✅ Generated {len(scenarios)} conversation scenarios")
-                    return scenarios
-                    
-            except json.JSONDecodeError as e:
-                print(f"⚠️ JSON parsing failed: {e}, using fallback generation...")
-        
-        # Fallback: generate scenarios based on persona information
-        return generate_fallback_scenarios_from_persona(user_persona_info)
-        
-    except Exception as e:
-        print(f"❌ Scenario generation error: {e}")
-        # Return basic fallback scenarios
-        return generate_fallback_scenarios_from_persona(user_persona_info)
-
-def generate_fallback_scenarios_from_persona(user_persona_info: Dict) -> List[Dict]:
-    """
-    Generate fallback scenarios when DeepSeek API fails
-    """
-    persona = user_persona_info.get('user_persona', {})
-    usage_context = user_persona_info.get('usage_context', {})
-    
-    role = persona.get('role', '专业用户')
-    business_domain = usage_context.get('business_domain', '专业服务')
-    primary_scenarios = usage_context.get('primary_scenarios', [])
-    
-    # Generate scenarios based on role and domain
-    if '客服' in role:
-        return [
-            {
-                "title": "客户账户查询",
-                "context": f"{business_domain}客服场景",
-                "user_profile": f"{role}，{persona.get('experience_level', '有经验')}",
-                "turns": [
-                    "客户问账户余额",
-                    "需要验证身份信息",
-                    "具体是哪个账户"
-                ]
-            },
-            {
-                "title": "产品咨询",
-                "context": f"{business_domain}产品咨询",
-                "user_profile": f"{role}，{persona.get('communication_style', '专业沟通')}",
-                "turns": [
-                    "客户想了解新产品",
-                    "询问具体功能",
-                    "咨询费用和条件"
-                ]
-            },
-            {
-                "title": "业务办理",
-                "context": f"{business_domain}业务处理",
-                "user_profile": f"{role}，{persona.get('work_environment', '客服环境')}",
-                "turns": [
-                    "客户要办理业务",
-                    "确认具体业务类型",
-                    "询问所需材料"
-                ]
-            }
-        ]
-    elif '工程师' in role or '监理' in role:
-        return [
-            {
-                "title": "现场质量问题",
-                "context": f"{persona.get('work_environment', '工程现场')}",
-                "user_profile": f"{role}，{persona.get('experience_level', '有经验')}",
-                "turns": [
-                    "发现质量问题",
-                    "描述具体位置",
-                    "询问处理方法"
-                ]
-            },
-            {
-                "title": "规范标准查询",
-                "context": f"{business_domain}技术支持",
-                "user_profile": f"{role}，{persona.get('communication_style', '专业术语')}",
-                "turns": [
-                    "需要查询相关规范",
-                    "明确具体标准条文",
-                    "确认适用条件"
-                ]
-            },
-            {
-                "title": "工艺流程咨询",
-                "context": f"{business_domain}现场作业",
-                "user_profile": f"{role}，{persona.get('work_environment', '施工现场')}",
-                "turns": [
-                    "咨询施工工艺",
-                    "询问具体步骤",
-                    "确认质量要求"
-                ]
-            }
-        ]
-    else:
-        # Generic scenarios
-        scenarios_list = []
-        for i, scenario in enumerate(primary_scenarios[:3], 1):
-            scenarios_list.append({
-                "title": f"{scenario}咨询",
-                "context": f"{business_domain}",
-                "user_profile": f"{role}，{persona.get('experience_level', '中等经验')}",
-                "turns": [
-                    f"关于{scenario}的问题",
-                    "需要更详细的信息",
-                    "确认具体操作方法"
-                ]
-            })
-        
-        if not scenarios_list:
-            scenarios_list = [
-                {
-                    "title": "专业咨询",
-                    "context": business_domain,
-                    "user_profile": f"{role}，专业工作场景",
-                    "turns": [
-                        "有个问题需要咨询",
-                        "具体情况是这样的",
-                        "应该怎么处理"
-                    ]
-                }
-            ]
-        
-        return scenarios_list
-
-# Remove the old fallback scenario functions and replace with simple scenario generation
-async def generate_dynamic_conversation_scenarios(user_persona_info: Dict) -> List[Dict]:
-    """
-    Generate 2 realistic conversation scenarios with strict timeout - no fallbacks
-    """
-    try:
-        persona = user_persona_info.get('user_persona', {})
-        usage_context = user_persona_info.get('usage_context', {})
-        
-        # Generate scenario topics based on persona
-        topic_generation_prompt = f"""
-基于用户画像，生成2个真实的对话场景主题。请严格按照JSON格式返回：
-
-用户角色：{persona.get('role', '')}
-工作环境：{persona.get('work_environment', '')}
-业务领域：{usage_context.get('business_domain', '')}
-主要场景：{', '.join(usage_context.get('primary_scenarios', []))}
-
-JSON格式：
-[
-  {{
-    "title": "场景1标题",
-    "context": "业务上下文",
-    "scenario_type": "具体场景类型"
-  }},
-  {{
-    "title": "场景2标题", 
-    "context": "业务上下文",
-    "scenario_type": "具体场景类型"
-  }}
-]
-
-只返回JSON，不要其他文字。"""
-
-        print("🎯 Generating scenario topics based on persona...")
-        response = await call_deepseek_with_strict_timeout(topic_generation_prompt)
-        
-        # Parse scenario topics
-        if response:
-            cleaned_response = response.strip()
-            if cleaned_response.startswith('```'):
-                lines = cleaned_response.split('\n')
-                cleaned_response = '\n'.join(lines[1:-1]) if len(lines) > 2 else cleaned_response
-            
-            start_idx = cleaned_response.find('[')
-            end_idx = cleaned_response.rfind(']')
-            
-            if start_idx != -1 and end_idx != -1:
-                json_str = cleaned_response[start_idx:end_idx+1]
-                parsed_scenarios = json.loads(json_str)
-                if isinstance(parsed_scenarios, list) and len(parsed_scenarios) >= 2:
-                    scenarios = parsed_scenarios[:2]  # Take first 2 scenarios
-                    print(f"✅ Generated {len(scenarios)} scenarios from DeepSeek")
-                    return scenarios
-        
-        # Simple hardcoded scenarios if API fails - no complex fallbacks
-        role = persona.get('role', '用户')
-        business_domain = usage_context.get('business_domain', '专业服务')
-        
-        if '工程师' in role or '监理' in role:
-            return [
-                {"title": "钢筋隐蔽工程验收", "context": f"{business_domain}现场验收", "scenario_type": "技术咨询"},
-                {"title": "混凝土浇筑旁站监督", "context": f"{business_domain}现场监督", "scenario_type": "规范查询"}
-            ]
-        elif '客服' in role:
-            return [
-                {"title": "客户账户查询", "context": f"{business_domain}客服场景", "scenario_type": "业务咨询"},
-                {"title": "产品功能咨询", "context": f"{business_domain}产品支持", "scenario_type": "产品咨询"}
-            ]
-        else:
-            return [
-                {"title": "专业技术咨询", "context": business_domain, "scenario_type": "技术支持"},
-                {"title": "操作指导问题", "context": f"{business_domain}操作场景", "scenario_type": "操作指导"}
-            ]
-        
-    except Exception as e:
-        print(f"❌ Scenario generation failed: {str(e)}")
-        raise Exception(f"场景生成失败: {str(e)}")
-
-# Update the main conversation function to use new approach
-async def conduct_dynamic_multi_scenario_evaluation(
-    api_config: APIConfig, 
-    user_persona_info: Dict, 
-    requirement_context: str = ""
-) -> List[Dict]:
-    """
-    Conduct dynamic multi-scenario evaluation with strict timeouts and no fallbacks
-    """
-    print("🚀 开始动态多场景对话评估...")
-    
-    # Generate 2 scenarios with strict timeout
-    scenarios = await generate_dynamic_conversation_scenarios(user_persona_info)
-    
-    evaluation_results = []
-    
-    # Dimension names mapping for display
-    dimension_names = {
-        "fuzzy_understanding": "模糊理解",
-        "answer_correctness": "回答准确性", 
-        "persona_alignment": "用户匹配",
-        "goal_alignment": "目标对齐"
-    }
-    
-    # Process scenarios sequentially for better error handling
-    for i, scenario_info in enumerate(scenarios, 1):
-        try:
-            print(f"📋 场景 {i}/2: {scenario_info.get('title', '未命名场景')}")
-            
-            # Conduct true dynamic conversation for this scenario
-            conversation_history = await conduct_true_dynamic_conversation(
-                api_config, scenario_info, user_persona_info
-            )
-            
-            if conversation_history:
-                # Evaluate conversation with enhanced detailed explanations
-                try:
-                    evaluation_scores, detailed_explanations, scenario_score = await evaluate_conversation_with_deepseek(
-                        conversation_history, scenario_info, requirement_context, user_persona_info
-                    )
-                except Exception as e:
-                    print(f"❌ 场景 {i} 评估失败: {str(e)}")
-                    continue
-
-                result = {
-                    "scenario_title": scenario_info.get('title', f'场景 {i}'),
-                    "scenario_context": scenario_info.get('context', '专业工作环境'),
-                    "scenario_persona": f"{user_persona_info.get('user_persona', {}).get('role', '专业用户')} | {user_persona_info.get('usage_context', {}).get('business_domain', '专业服务')}",
-                    "conversation_history": conversation_history,
-                    "evaluation_scores": evaluation_scores,
-                    "detailed_explanations": detailed_explanations,  # Add detailed explanations
-                    "scenario_score": scenario_score,
-                    "total_turns": len(conversation_history),
-                    "persona_context_display": {
-                        "user_role": user_persona_info.get('user_persona', {}).get('role', '专业用户'),
-                        "business_domain": user_persona_info.get('usage_context', {}).get('business_domain', '专业服务'),
-                        "experience_level": user_persona_info.get('user_persona', {}).get('experience_level', '中等经验'),
-                        "communication_style": user_persona_info.get('user_persona', {}).get('communication_style', '专业沟通')
-                    },
-                    # Frontend display format
-                    "scenario": {
-                        "title": scenario_info.get('title', f'场景 {i}'),
-                        "context": f"{user_persona_info.get('usage_context', {}).get('business_domain', '专业服务')} - {scenario_info.get('context', '专业工作环境')}",
-                        "user_profile": f"{user_persona_info.get('user_persona', {}).get('role', '用户')}，{user_persona_info.get('user_persona', {}).get('experience_level', '中等经验')}，{user_persona_info.get('user_persona', {}).get('communication_style', '专业沟通')}"
-                    },
-                    "evaluation_scores_with_explanations": {
-                        dimension: {
-                            "score": score,
-                            "explanation": detailed_explanations.get(dimension, {}).get("detailed_analysis", "未提供详细分析"),
-                            "formatted_score": f"{dimension_names.get(dimension, dimension)}: {score}/5"
-                        }
-                        for dimension, score in evaluation_scores.items()
-                    }
-                }
-                
-                evaluation_results.append(result)
-                print(f"🎯 场景 {i} 得分: {scenario_score:.2f}/5.0")
-            else:
-                print(f"❌ 场景 {i} 对话失败")
-                
-        except Exception as e:
-            print(f"❌ 场景 {i} 评估失败: {str(e)}")
-            continue
-    
-    if not evaluation_results:
-        raise Exception("所有场景评估均失败，请检查AI Agent配置和网络连接")
-    
-    return evaluation_results
-
-async def evaluate_conversation_with_deepseek(
-    conversation_history: List[Dict], 
-    scenario_info: Dict, 
-    requirement_context: str,
-    user_persona_info: Dict
-) -> tuple:
-    """
-    Enhanced DeepSeek evaluation with detailed explanations for each rating criteria
-    """
-    try:
-        print("🧠 开始DeepSeek智能评估 (基于提取的用户画像)...")
-        
-        persona = user_persona_info.get('user_persona', {})
-        context = user_persona_info.get('usage_context', {})
-        requirements = user_persona_info.get('extracted_requirements', {})
-        
-        # Build comprehensive context for detailed evaluation
-        context_section = f"""
-=== 用户画像基准 ===
-用户角色: {persona.get('role', '专业用户')}
-经验水平: {persona.get('experience_level', '中等经验')}
-工作环境: {persona.get('work_environment', '专业环境')}
-业务领域: {context.get('business_domain', '专业服务')}
-沟通风格: {persona.get('communication_style', '专业沟通')}
-专业领域: {', '.join(persona.get('expertise_areas', []))}
-
-=== 场景背景 ===
-场景标题: {scenario_info.get('title', '未知场景')}
-场景描述: {scenario_info.get('context', '专业对话场景')}
-
-=== 完整对话记录 ===
-"""
-        
-        # Add conversation history to context
-        for i, turn in enumerate(conversation_history, 1):
-            context_section += f"第{i}轮 - {turn.get('role', '用户')}: {turn.get('content', '')[:100]}...\n"
-            
-        # Enhanced evaluation prompts with detailed analysis requirements
-        evaluation_prompts = {
-            "fuzzy_understanding": f"""
-{context_section}
-
-请详细分析上述完整对话中AI的模糊理解与追问能力，并给出1-5分评分。
-
-评分标准：
-5分：完全理解模糊问题，主动追问关键细节，引导用户提供必要信息
-4分：基本理解模糊问题，有一定追问能力
-3分：能处理部分模糊问题，追问不够深入
-2分：对模糊问题理解有限，很少主动追问
-1分：无法处理模糊问题，缺乏追问能力
-
-请按以下格式回答：
-评分：X/5
-详细分析：
-1. 模糊理解表现：[分析AI如何理解用户的模糊或不完整问题]
-2. 追问质量：[分析AI的追问是否恰当、深入]
-3. 信息获取：[分析AI是否成功获取了解决问题所需的关键信息]
-4. 改进建议：[针对该用户画像的具体改进建议]
-""",
-            
-            "answer_correctness": f"""
-{context_section}
-
-请详细分析上述完整对话中AI回答的准确性与专业性，并给出1-5分评分。
-
-评分标准：
-5分：回答完全准确，专业性强，符合行业标准
-4分：回答基本准确，有一定专业性
-3分：回答部分准确，专业性一般
-2分：回答准确性有限，专业性不足
-1分：回答不准确，缺乏专业性
-
-请按以下格式回答：
-评分：X/5
-详细分析：
-1. 准确性评估：[分析AI回答的事实准确性]
-2. 专业性评估：[分析AI回答是否符合{persona.get('role', '专业用户')}的专业要求]
-3. 完整性评估：[分析AI回答是否完整解决了用户问题]
-4. 改进建议：[针对该用户画像的具体改进建议]
-""",
-            
-            "persona_alignment": f"""
-{context_section}
-
-请详细分析上述完整对话中AI与用户画像的匹配度，并给出1-5分评分。
-
-评分标准：
-5分：完全匹配用户画像，沟通风格和专业度高度契合
-4分：基本匹配用户画像，沟通较为恰当
-3分：部分匹配用户画像，沟通风格一般
-2分：匹配度有限，沟通风格不够恰当
-1分：不匹配用户画像，沟通风格不合适
-
-请按以下格式回答：
-评分：X/5
-详细分析：
-1. 角色匹配：[分析AI是否理解用户的{persona.get('role', '专业用户')}身份]
-2. 沟通风格：[分析AI的沟通方式是否符合用户的{persona.get('communication_style', '专业沟通')}偏好]
-3. 专业契合：[分析AI的回答是否符合{context.get('business_domain', '专业服务')}领域要求]
-4. 改进建议：[针对该用户画像的具体改进建议]
-""",
-            
-            "goal_alignment": f"""
-{context_section}
-
-请详细分析上述完整对话中AI与用户目标的对齐度，并给出1-5分评分。
-
-评分标准：
-5分：完全理解并满足用户目标，主动提供相关帮助
-4分：基本理解用户目标，提供有效帮助
-3分：部分理解用户目标，帮助有限
-2分：对用户目标理解不足，帮助不够
-1分：不理解用户目标，无法提供有效帮助
-
-请按以下格式回答：
-评分：X/5
-详细分析：
-1. 目标理解：[分析AI是否准确理解了用户的真实需求和目标]
-2. 解决效果：[分析AI的回答是否有效解决了用户问题]
-3. 主动性：[分析AI是否主动提供了相关的额外帮助]
-4. 改进建议：[针对该用户画像的具体改进建议]
-"""
-        }
-        
-        evaluation_results = {}
-        detailed_explanations = {}
-        
-        # Evaluate each dimension with detailed analysis
-        for dimension, prompt in evaluation_prompts.items():
-            try:
-                print(f"  📊 评估 {dimension} (场景: {scenario_info.get('title', '未知')[:20]}...)...")
-                response = await call_deepseek_with_strict_timeout(prompt)
-                
-                # Extract score and detailed explanation
-                score = extract_score_from_response(response)
-                detailed_explanation = extract_detailed_explanation(response)
-                
-                evaluation_results[dimension] = score
-                detailed_explanations[dimension] = detailed_explanation
-                
-                print(f"  ✅ {dimension}: {score}/5 (匹配{persona.get('role', '用户')}需求)")
-                
-            except Exception as e:
-                print(f"  ❌ Failed to evaluate {dimension}: {str(e)}")
-                raise Exception(f"评估维度 {dimension} 失败: {str(e)}")
-        
-        # Calculate overall score
-        scenario_score = sum(evaluation_results.values()) / len(evaluation_results)
-        print(f"🎯 场景整体得分: {scenario_score:.2f}/5.0")
-        
-        return evaluation_results, detailed_explanations, scenario_score
-        
-    except Exception as e:
-        print(f"❌ 评估失败: {str(e)}")
-        raise Exception(f"DeepSeek评估失败: {str(e)}")
-
-def extract_detailed_explanation(response: str) -> Dict[str, str]:
-    """
-    Extract detailed explanation from DeepSeek response
-    """
-    try:
-        explanation = {
-            "score": "未知",
-            "detailed_analysis": "未提供详细分析",
-            "specific_points": []
-        }
-        
-        lines = response.split('\n')
-        current_section = None
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith('评分：'):
-                explanation["score"] = line.replace('评分：', '').strip()
-            elif line.startswith('详细分析：'):
-                current_section = "analysis"
-            elif line and current_section == "analysis":
-                if any(line.startswith(f"{i}.") for i in range(1, 10)):
-                    explanation["specific_points"].append(line)
-                elif line.startswith(('1.', '2.', '3.', '4.')):
-                    explanation["specific_points"].append(line)
-        
-        # Combine all specific points into detailed analysis
-        if explanation["specific_points"]:
-            explanation["detailed_analysis"] = "\n".join(explanation["specific_points"])
-        
-        return explanation
-        
-    except Exception as e:
-        print(f"Warning: Could not parse detailed explanation: {str(e)}")
-        return {
-            "score": "未知",
-            "detailed_analysis": response[:500] + "..." if len(response) > 500 else response,
-            "specific_points": []
-        }
-
-async def generate_single_initial_message(scenario_info: Dict, user_persona_info: Dict) -> str:
-    """Generate ONLY the opening message - no full conversation"""
-    persona = user_persona_info.get('user_persona', {})
-    context = user_persona_info.get('usage_context', {})
-    
-    prompt = f"""
-作为{persona.get('role', '用户')}，生成一个自然的开场问题。
-
-用户身份: {persona.get('role', '用户')}
-工作经验: {persona.get('experience_level', '中等经验')}
-工作环境: {persona.get('work_environment', '工作场所')}
-沟通风格: {persona.get('communication_style', '专业')}
-业务领域: {context.get('business_domain', '专业服务')}
-
-对话场景: {scenario_info.get('title', '专业咨询')}
-场景背景: {scenario_info.get('context', '工作场景')}
-
-请生成一个符合{persona.get('role', '用户')}身份的开场问题或描述，体现{scenario_info.get('title', '场景')}的特点。
-
-要求:
-- 像真实的{persona.get('role', '用户')}提问
-- 体现{persona.get('experience_level', '经验水平')}
-- 符合{scenario_info.get('title', '场景')}背景
-- 只返回一句话，不要解释
-
-示例格式: "现场发现...", "需要确认...", "关于...规范要求"
-"""
-
-    try:
-        response = await call_deepseek_with_strict_timeout(prompt)
-        if response and len(response.strip()) > 5:
-            return response.strip().strip('"').strip("'")
-    except Exception as e:
-        print(f"⚠️ DeepSeek生成初始消息失败: {str(e)}")
-    
-    # Simple fallback based on scenario
-    role = persona.get('role', '用户')
-    if '工程师' in role or '监理' in role:
-        return f"现场{scenario_info.get('title', '施工')}有技术问题需要确认"
-    else:
-        return f"关于{scenario_info.get('title', '业务')}有问题咨询"
-
-async def generate_next_message_based_on_response(
-    scenario_info: Dict, 
-    user_persona_info: Dict, 
-    conversation_history: List[Dict], 
-    coze_response: str
-) -> str:
-    """Generate next message based ONLY on Coze's actual response"""
-    persona = user_persona_info.get('user_persona', {})
-    
-    # Analyze Coze's response characteristics
-    response_analysis = analyze_coze_response(coze_response)
-    
-    prompt = f"""
-作为{persona.get('role', '用户')}，基于AI的回复，生成自然的后续消息。
-
-你的身份: {persona.get('role', '用户')}
-沟通风格: {persona.get('communication_style', '专业')}
-经验水平: {persona.get('experience_level', '中等')}
-
-AI刚才的回复:
-{coze_response[:400]}
-
-回复特征分析:
-- 是否提供了具体信息: {response_analysis['has_specific_info']}
-- 是否包含规范引用: {response_analysis['has_standards']}
-- 回复完整度: {response_analysis['completeness']}
-
-请生成符合{persona.get('role', '用户')}身份的后续消息:
-1. 如果AI回答完整且解决问题 → 表达感谢并结束("谢谢，问题解决了")
-2. 如果AI回答模糊 → 追问具体细节
-3. 如果AI提供链接但需要具体内容 → 询问关键条文
-4. 如果AI回答部分正确 → 补充追问相关问题
-
-只返回后续消息内容，如需结束对话返回"END"。
-"""
-
-    try:
-        response = await call_deepseek_with_strict_timeout(prompt)
-        if response:
-            message = response.strip().strip('"').strip("'")
-            if message.upper() in ["END", "FINISH", "DONE"]:
-                return ""
-            return message if len(message) > 3 else ""
-    except Exception:
-        pass
-    
-    # Smart fallback based on turn number and AI response quality
-    turn_num = len(conversation_history)
-    
-    if turn_num >= 4:  # Natural ending after several turns
-        return ""
-    
-    # Generate contextual response based on role and AI response content
-    role = persona.get('role', '用户')
-    ai_response_lower = coze_response.lower()
-    
-    if '规范' in ai_response_lower and ('工程师' in role or '监理' in role):
-        return "具体条文号是什么？现场操作要注意哪些要点？"
-    elif '标准' in ai_response_lower or '要求' in ai_response_lower:
-        return "这个标准的具体执行细节是什么？"
-    elif '可以' in ai_response_lower or '建议' in ai_response_lower:
-        return "好的，还有其他需要注意的吗？"
-    elif len(coze_response) < 100:  # Short response, need more details
-        return "能详细说明一下具体操作步骤吗？"
-    else:
-        return "明白了，谢谢"
-
-def analyze_coze_response(response: str) -> Dict[str, bool]:
-    """Analyze Coze response characteristics"""
-    return {
-        'has_specific_info': len(response) > 100 and ('条' in response or '第' in response or 'GB' in response),
-        'has_standards': '规范' in response or '标准' in response or 'GB' in response,
-        'completeness': len(response) > 150
-    }
-
-async def call_coze_with_strict_timeout(api_config: APIConfig, message: str) -> str:
-    """Call Coze API with strict 2-minute timeout and no excessive retries"""
-    timeout_seconds = 120  # 2 minutes total
-    max_retries = 2  # Only 2 attempts max
-    
-    for attempt in range(max_retries):
-        try:
-            print(f"🔄 Coze调用 (尝试 {attempt + 1}/{max_retries})")
-            
-            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds)) as client:
-                if api_config.type == 'coze-agent':
-                    return await call_coze_agent_with_timeout(api_config, message, client)
-                elif api_config.type == 'coze-bot' or hasattr(api_config, 'botId'):
-                    return await call_coze_bot_with_timeout(api_config, message, client)
-                else:
-                    return await call_generic_api_with_timeout(api_config, message, client)
-                    
-        except asyncio.TimeoutError:
-            print(f"⏰ 第{attempt + 1}次调用超时 (2分钟)")
-            if attempt < max_retries - 1:
-                continue
-            else:
-                raise Exception("Coze API调用超时，请检查网络或Agent配置")
-        except Exception as e:
-            print(f"❌ 第{attempt + 1}次调用失败: {str(e)}")
-            if attempt < max_retries - 1:
-                continue
-            else:
-                raise Exception(f"Coze API调用失败: {str(e)}")
-    
-    raise Exception("Coze API调用完全失败")
-
-async def call_deepseek_with_strict_timeout(prompt: str) -> str:
-    """Call DeepSeek API with strict timeout and no retries"""
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": "deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "max_tokens": 300
-    }
-    
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
-            response = await client.post(DEEPSEEK_API_URL, headers=headers, json=payload)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if "choices" in result and len(result["choices"]) > 0:
-                    content = result["choices"][0].get("message", {}).get("content", "").strip()
-                    if content and len(content) > 5:
-                        return content
-            
-            raise Exception(f"DeepSeek API错误: {response.status_code}")
-            
-    except Exception as e:
-        raise Exception(f"DeepSeek API调用失败: {str(e)}")
-
-async def call_coze_agent_with_timeout(api_config: APIConfig, message: str, client: httpx.AsyncClient) -> str:
-    """Call Coze Agent API with timeout - no excessive polling"""
-    base_url = "https://api.coze.cn" if api_config.region == "china" else "https://api.coze.com"
-    chat_url = f"{base_url}/v3/chat"
-    
-    headers = {
-        "Authorization": f"Bearer {api_config.headers.get('Authorization', '').replace('Bearer ', '')}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "bot_id": api_config.agentId,
-        "user_id": f"user_{datetime.now().strftime('%H%M%S')}",
-        "stream": False,
-        "auto_save_history": True,
-        "additional_messages": [{"role": "user", "content": message, "content_type": "text"}]
-    }
-    
-    # Start conversation
-    response = await client.post(chat_url, headers=headers, json=payload)
-    if response.status_code != 200:
-        raise Exception(f"Agent API错误: {response.status_code}")
-    
-    result = response.json()
-    if result.get("code") != 0:
-        raise Exception(f"Agent响应错误: {result.get('msg', 'Unknown error')}")
-    
-    data = result.get("data", {})
-    conversation_id = data.get("conversation_id")
-    chat_id = data.get("id")
-    status = data.get("status")
-    
-    if status == "completed":
-        # Get messages immediately
-        return await get_agent_messages(client, base_url, headers, conversation_id, chat_id)
-    elif status == "in_progress":
-        # Limited polling - max 20 attempts with 3-second intervals (1 minute total)
-        messages_url = f"{base_url}/v1/conversation/message/list"
-        for poll in range(20):
-            await asyncio.sleep(3)
-            
-            params = {"conversation_id": conversation_id, "chat_id": chat_id}
-            messages_response = await client.get(messages_url, headers=headers, params=params)
-            
-            if messages_response.status_code == 200:
-                messages_result = messages_response.json()
-                if messages_result.get("code") == 0:
-                    messages = messages_result.get("data", [])
-                    for msg in messages:
-                        if msg.get("role") == "assistant" and msg.get("content"):
-                            return msg.get("content", "").strip()
-        
-        raise Exception("Agent处理超时 (1分钟)")
-    else:
-        raise Exception(f"Agent状态异常: {status}")
-
-async def get_agent_messages(client: httpx.AsyncClient, base_url: str, headers: Dict, conversation_id: str, chat_id: str) -> str:
-    """Get agent messages with single call"""
-    messages_url = f"{base_url}/v1/conversation/message/list"
-    params = {"conversation_id": conversation_id, "chat_id": chat_id}
-    
-    response = await client.get(messages_url, headers=headers, params=params)
-    if response.status_code != 200:
-        raise Exception(f"获取消息失败: {response.status_code}")
-    
-    result = response.json()
-    if result.get("code") != 0:
-        raise Exception(f"消息API错误: {result.get('msg')}")
-    
-    messages = result.get("data", [])
-    for msg in messages:
-        if msg.get("role") == "assistant" and msg.get("content"):
-            return msg.get("content", "").strip()
-    
-    raise Exception("未找到Assistant回复")
-
-async def call_coze_bot_with_timeout(api_config: APIConfig, message: str, client: httpx.AsyncClient) -> str:
-    """Call Coze Bot API with timeout"""
-    url = "https://api.coze.cn/open_api/v2/chat"
-    headers = {
-        "Authorization": "Bearer pat_aWWxLQe20D8km5FsKt5W99pWL72L5LNxjkontH91q3lqqTU0ExBKUBl1cUy4tm8c",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "conversation_id": f"conv_{datetime.now().strftime('%H%M%S')}",
-        "bot_id": getattr(api_config, 'botId', '7511993619423985674'),
-        "user": "test_user",
-        "query": message,
-        "stream": False
-    }
-    
-    response = await client.post(url, headers=headers, json=payload)
-    if response.status_code != 200:
-        raise Exception(f"Bot API错误: {response.status_code}")
-    
-    result = response.json()
-    messages = result.get("messages", [])
-    
-    for msg in messages:
-        if msg.get("type") == "answer" and msg.get("content"):
-            return msg.get("content", "").strip()
-    
-    raise Exception("Bot未返回有效回复")
-
-async def call_generic_api_with_timeout(api_config: APIConfig, message: str, client: httpx.AsyncClient) -> str:
-    """Call generic API with timeout"""
-    headers = api_config.headers.copy()
-    headers.setdefault("Content-Type", "application/json")
-    
-    payload = {"message": message, "query": message}
-    
-    response = await client.request(
-        method=api_config.method,
-        url=api_config.url,
-        headers=headers,
-        json=payload
-    )
-    
-    if response.status_code != 200:
-        raise Exception(f"API错误: {response.status_code}")
-    
-    result = response.json()
-    return result.get("response", result.get("answer", result.get("message", str(result))))
-
-async def generate_final_comprehensive_report(
-    evaluation_results: List[Dict], 
-    user_persona_info: Dict, 
-    requirement_context: str
-) -> Dict:
-    """
-    Generate comprehensive final report for dynamic evaluation with extracted persona/context display
-    """
-    if not evaluation_results:
-        return {
-            "overall_analysis": "评估失败：无有效对话数据",
-            "extracted_persona_summary": user_persona_info,
-            "cross_scenario_insights": [],
-            "persona_alignment_analysis": "无法分析",
-            "improvement_recommendations": ["请检查AI Agent配置和网络连接"],
-            "detailed_metrics": {}
-        }
-    
-    # Extract persona information for prominent display
-    persona = user_persona_info.get('user_persona', {})
-    context = user_persona_info.get('usage_context', {})
-    requirements = user_persona_info.get('extracted_requirements', {})
-    
-    # Calculate comprehensive metrics
-    all_scores = []
-    total_turns = 0
-    scenario_summaries = []
-    dimension_averages = {}
-    
-    for result in evaluation_results:
-        scores = result.get('evaluation_scores', {})
-        if scores:
-            all_scores.extend(scores.values())
-            # Calculate dimension averages
-            for dimension, score in scores.items():
-                if dimension not in dimension_averages:
-                    dimension_averages[dimension] = []
-                dimension_averages[dimension].append(score)
-        
-        total_turns += result.get('total_turns', 0)
-        
-        scenario_summaries.append({
-            "title": result.get('scenario_title', '未命名场景'),
-            "score": result.get('scenario_score', 0),
-            "turns": result.get('total_turns', 0),
-            "key_strengths": extract_strengths_from_scores(scores),
-            "improvement_areas": extract_weaknesses_from_scores(scores),
-            "detailed_evaluations": result.get('evaluation_explanations', {})
-        })
-    
-    # Calculate final dimension averages
-    final_dimension_averages = {}
-    for dimension, scores in dimension_averages.items():
-        final_dimension_averages[dimension] = sum(scores) / len(scores) if scores else 0
-    
-    overall_score = sum(all_scores) / len(all_scores) if all_scores else 0
-    
-    # Generate enhanced analysis prompt with extracted persona emphasis
-    analysis_prompt = f"""
-基于以下动态对话评估结果和提取的用户画像，生成综合分析报告：
-
-=== 从需求文档提取的用户画像信息 ===
-用户角色: {persona.get('role', '未指定')}
-经验水平: {persona.get('experience_level', '未指定')}
-专业领域: {', '.join(persona.get('expertise_areas', ['未指定']))}
-沟通风格: {persona.get('communication_style', '未指定')}
-工作环境: {persona.get('work_environment', '未指定')}
-
-业务上下文: {context.get('business_domain', '未指定')}
-主要使用场景: {', '.join(context.get('primary_scenarios', ['未指定']))}
-交互目标: {', '.join(context.get('interaction_goals', ['未指定']))}
-关键痛点: {', '.join(context.get('pain_points', ['未指定']))}
-
-核心功能需求: {', '.join(requirements.get('core_functions', ['未指定']))}
-质量期望: {', '.join(requirements.get('quality_expectations', ['未指定']))}
-
-=== 评估结果数据 ===
-总体得分: {overall_score:.2f}/5.0
-评估场景数: {len(evaluation_results)}
-总对话轮次: {total_turns}
-
-维度得分:
-- 模糊理解能力: {final_dimension_averages.get('fuzzy_understanding', 0):.2f}/5.0
-- 回答准确性: {final_dimension_averages.get('answer_correctness', 0):.2f}/5.0
-- 用户匹配度: {final_dimension_averages.get('persona_alignment', 0):.2f}/5.0
-- 目标对齐度: {final_dimension_averages.get('goal_alignment', 0):.2f}/5.0
-
-场景详情:
-{chr(10).join([f"场景{i+1}: {s['title']} - 得分{s['score']:.1f}/5.0 ({s['turns']}轮对话)" for i, s in enumerate(scenario_summaries)])}
-
-请生成包含以下内容的综合分析：
-1. 整体表现评价：基于提取的{persona.get('role', '用户角色')}需求，AI的整体表现如何？（150字内）
-2. 用户画像匹配度分析：AI是否很好地适应了提取的用户角色和沟通风格？（100字内）
-3. 业务目标达成度：是否满足了从需求文档中提取的业务目标和功能需求？（100字内）
-4. 跨场景对比洞察：不同场景下的表现差异和规律（3-5个要点）
-5. 针对性改进建议：基于提取的用户画像和业务需求的具体改进建议（5-8条）
-
-请用专业但易懂的语言，重点突出与提取的用户画像和需求的匹配情况。
-"""
-
-    try:
-        comprehensive_analysis = await call_deepseek_api_with_fallback(analysis_prompt)
-        
-        if comprehensive_analysis and comprehensive_analysis != "API评估暂时不可用，使用备用评分机制":
-            # Parse the analysis response
-            analysis_sections = parse_enhanced_comprehensive_analysis(comprehensive_analysis)
-        else:
-            # Fallback analysis with persona emphasis
-            analysis_sections = generate_enhanced_fallback_analysis(overall_score, scenario_summaries, user_persona_info)
-            
-    except Exception as e:
-        print(f"⚠️ 综合分析生成失败，使用备用分析: {str(e)[:50]}...")
-        analysis_sections = generate_enhanced_fallback_analysis(overall_score, scenario_summaries, user_persona_info)
-    
-    # Generate persona-specific recommendations
-    recommendations = generate_persona_specific_recommendations(evaluation_results, user_persona_info, final_dimension_averages)
-    
-    return {
-        "overall_analysis": analysis_sections.get("overall_evaluation", "整体表现需要进一步分析"),
-        "extracted_persona_summary": {
-            "user_persona": persona,
-            "usage_context": context,
-            "extracted_requirements": requirements,
-            "ai_role_simulation": user_persona_info.get('ai_role_simulation', {}),
-            "extraction_source": "DeepSeek智能提取"
-        },
-        "persona_alignment_analysis": analysis_sections.get("persona_alignment", "用户画像匹配度有待评估"),
-        "business_goal_achievement": analysis_sections.get("business_goals", "业务目标达成度需要分析"),
-        "cross_scenario_insights": analysis_sections.get("cross_scenario_insights", []),
-        "improvement_recommendations": recommendations,
-        "detailed_metrics": {
-            "overall_score": overall_score,
-            "dimension_scores": final_dimension_averages,
-            "total_scenarios": len(evaluation_results),
-            "total_conversation_turns": total_turns,
-            "average_turns_per_scenario": total_turns / len(evaluation_results) if evaluation_results else 0,
-            "scenario_summaries": scenario_summaries
-        },
-        "evaluation_timestamp": datetime.now().isoformat(),
-        "evaluation_mode": "dynamic_conversation_with_extracted_persona"
-    }
-
-def extract_strengths_from_scores(scores: Dict) -> List[str]:
-    """Extract strengths based on evaluation scores"""
-    strengths = []
-    for dimension, score in scores.items():
-        if score >= 4.0:
-            if dimension == "fuzzy_understanding":
-                strengths.append("模糊理解能力强")
-            elif dimension == "answer_correctness":
-                strengths.append("回答准确专业")
-            elif dimension == "persona_alignment":
-                strengths.append("用户匹配度高")
-            elif dimension == "goal_alignment":
-                strengths.append("目标对齐良好")
-    return strengths
-
-def extract_weaknesses_from_scores(scores: Dict) -> List[str]:
-    """Extract improvement areas based on evaluation scores"""
-    weaknesses = []
-    for dimension, score in scores.items():
-        if score < 3.5:
-            if dimension == "fuzzy_understanding":
-                weaknesses.append("需加强追问引导")
-            elif dimension == "answer_correctness":
-                weaknesses.append("专业准确性待提升")
-            elif dimension == "persona_alignment":
-                weaknesses.append("用户适配度需改善")
-            elif dimension == "goal_alignment":
-                weaknesses.append("目标对齐需优化")
-    return weaknesses
-
-def parse_enhanced_comprehensive_analysis(analysis_text: str) -> Dict:
-    """Parse comprehensive analysis response into structured sections"""
-    sections = {
-        "overall_evaluation": "",
-        "cross_scenario_insights": [],
-        "persona_analysis": "",
-        "business_goals": ""
-    }
-    
-    lines = analysis_text.split('\n')
-    current_section = None
-    
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-            
-        if "整体表现" in line or "总体评价" in line:
-            current_section = "overall_evaluation"
-        elif "跨场景" in line or "对比洞察" in line:
-            current_section = "cross_scenario_insights"
-        elif "用户画像" in line or "匹配度" in line:
-            current_section = "persona_analysis"
-        elif "业务目标" in line or "业务达成" in line:
-            current_section = "business_goals"
-        elif current_section == "overall_evaluation" and not sections["overall_evaluation"]:
-            sections["overall_evaluation"] = line
-        elif current_section == "cross_scenario_insights" and line.startswith(('•', '-', '1.', '2.', '3.', '4.', '5.')):
-            sections["cross_scenario_insights"].append(line.lstrip('•-123456789. '))
-        elif current_section == "persona_analysis" and not sections["persona_analysis"]:
-            sections["persona_analysis"] = line
-        elif current_section == "business_goals" and not sections["business_goals"]:
-            sections["business_goals"] = line
-    
-    return sections
-
-def generate_enhanced_fallback_analysis(overall_score: float, scenario_summaries: List[Dict], user_persona_info: Dict) -> Dict:
-    """Generate fallback analysis when DeepSeek API is unavailable"""
-    persona = user_persona_info.get('user_persona', {})
-    
-    if overall_score >= 4.0:
-        overall_eval = f"AI Agent整体表现优秀（{overall_score:.1f}/5.0），能够有效处理{persona.get('role', '用户')}的专业需求"
-    elif overall_score >= 3.0:
-        overall_eval = f"AI Agent表现良好（{overall_score:.1f}/5.0），基本满足使用需求，部分环节有改进空间"
-    else:
-        overall_eval = f"AI Agent表现需要改进（{overall_score:.1f}/5.0），建议重点优化对话策略和专业知识"
-    
-    insights = [
-        f"共完成{len(scenario_summaries)}个场景的动态对话测试",
-        f"平均每场景{sum(s['turns'] for s in scenario_summaries) / len(scenario_summaries):.1f}轮对话",
-        "动态问题生成机制运行正常" if scenario_summaries else "对话生成需要优化"
-    ]
-    
-    persona_analysis = f"与{persona.get('role', '用户')}角色的匹配度整体{('良好' if overall_score >= 3.5 else '有待提升')}"
-    
-    business_goals = f"基于提取的需求文档，业务目标达成度{('较好' if overall_score >= 3.5 else '需要改进')}"
-    
-    return {
-        "overall_evaluation": overall_eval,
-        "cross_scenario_insights": insights,
-        "persona_alignment": persona_analysis,
-        "business_goals": business_goals
-    }
-
-def generate_persona_specific_recommendations(evaluation_results: List[Dict], user_persona_info: Dict, dimension_averages: Dict) -> List[str]:
-    """
-    Generate persona-specific recommendations based on extracted user persona and evaluation results
-    """
-    recommendations = []
-    
-    if not evaluation_results:
-        return [
-            "无法生成推荐建议，请先完成有效的评估",
-            "检查AI Agent配置和网络连接",
-            "确保对话场景配置正确"
-        ]
-    
-    persona = user_persona_info.get('user_persona', {})
-    context = user_persona_info.get('usage_context', {})
-    requirements = user_persona_info.get('extracted_requirements', {})
-    
-    # Overall performance assessment based on extracted persona
-    overall_avg = sum(dimension_averages.values()) / len(dimension_averages) if dimension_averages else 0
-    
-    if overall_avg >= 4.5:
-        recommendations.append(f"🟢 针对{persona.get('role', '用户')}的整体表现优秀！AI代理能够有效处理{context.get('business_domain', '业务')}需求")
-    elif overall_avg >= 4.0:
-        recommendations.append(f"🟡 对{persona.get('role', '用户')}的服务良好，基本满足{context.get('business_domain', '业务')}需求，有进一步优化空间")
-    elif overall_avg >= 3.0:
-        recommendations.append(f"🟠 服务{persona.get('role', '用户')}的能力中等，建议针对{context.get('business_domain', '业务领域')}特点进行改进")
-    else:
-        recommendations.append(f"🔴 需要显著改进对{persona.get('role', '用户')}的服务能力，特别是{context.get('business_domain', '业务')}相关功能")
-    
-    # Dimension-specific recommendations with persona context
-    if dimension_averages.get('fuzzy_understanding', 0) < 3.5:
-        pain_points = context.get('pain_points', [])
-        pain_context = f"，特别是{', '.join(pain_points[:2])}" if pain_points else ""
-        recommendations.append(f"💡 针对{persona.get('role', '用户')}的模糊理解能力需要加强：增加追问引导机制{pain_context}")
-    
-    if dimension_averages.get('answer_correctness', 0) < 3.5:
-        expertise_areas = persona.get('expertise_areas', [])
-        expertise_context = f"，特别是{', '.join(expertise_areas[:2])}领域" if expertise_areas else ""
-        recommendations.append(f"📚 针对{persona.get('role', '用户')}的专业准确性需要提升：加强知识库建设{expertise_context}")
-    
-    if dimension_averages.get('persona_alignment', 0) < 3.5:
-        comm_style = persona.get('communication_style', '专业沟通')
-        recommendations.append(f"👥 用户匹配度有待改善：优化语言风格以适应{comm_style}，匹配{persona.get('experience_level', '用户经验水平')}")
-    
-    if dimension_averages.get('goal_alignment', 0) < 3.5:
-        core_functions = requirements.get('core_functions', [])
-        function_context = f"，重点关注{', '.join(core_functions[:2])}" if core_functions else ""
-        recommendations.append(f"🎯 业务目标对齐度需要改进：确保回答能够满足{context.get('business_domain', '业务')}的实际需求{function_context}")
-    
-    # Add persona-specific targeted recommendations
-    role = persona.get('role', '')
-    work_env = persona.get('work_environment', '')
-    
-    if '客服' in role:
-        recommendations.append(f"🎧 客服场景优化：针对{work_env}环境，提升响应效率和标准化回答")
-        quality_expectations = requirements.get('quality_expectations', [])
-        if quality_expectations:
-            recommendations.append(f"⏱️ 服务质量提升：重点满足{', '.join(quality_expectations[:2])}等客服质量要求")
-    elif '工程师' in role or '监理' in role:
-        recommendations.append(f"🔧 技术专业性：加强对{work_env}环境下技术规范和标准的支持")
-        if '规范' in str(context.get('primary_scenarios', [])):
-            recommendations.append("📋 规范查询优化：增强对技术标准和施工规范的快速检索和解释能力")
-    elif '管理' in role:
-        recommendations.append("📊 管理决策支持：提供更多数据分析和决策建议功能")
-    
-    # Add interaction preference recommendations
-    interaction_goals = context.get('interaction_goals', [])
-    if interaction_goals:
-        recommendations.append(f"🎯 交互目标优化：重点提升{', '.join(interaction_goals[:2])}的实现效果")
-    
-    # Quality expectations based recommendations  
-    quality_expectations = requirements.get('quality_expectations', [])
-    if quality_expectations:
-        recommendations.append(f"⭐ 质量标准对齐：确保达到{', '.join(quality_expectations[:2])}等质量期望")
-    
-    # Limit to 6-8 most relevant recommendations
-    unique_recommendations = list(dict.fromkeys(recommendations))
-    return unique_recommendations[:8]
 
 def extract_recommendations_from_response(response: str) -> List[str]:
     """Extract improvement recommendations from DeepSeek response"""
@@ -3283,39 +1911,66 @@ async def validate_agent_config(agent_api_config: str = Form(...)):
         }
 
 async def call_deepseek_api_with_fallback(prompt: str, max_retries: int = 2) -> str:
-    """Enhanced DeepSeek API call with better error handling and suppressed exceptions"""
+    """
+    Enhanced DeepSeek API call with config-based settings and proper error handling
+    """
     headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
     
     payload = {
         "model": "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "max_tokens": 500
+        "max_tokens": 800,
+        "temperature": config.ENHANCED_TEMPERATURE
     }
     
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(20.0)) as client:
-                response = await client.post(DEEPSEEK_API_URL, headers=headers, json=payload)
+            timeout = httpx.Timeout(config.DEEPSEEK_TIMEOUT, connect=10.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(config.DEEPSEEK_API_URL, headers=headers, json=payload)
                 
                 if response.status_code == 200:
                     result = response.json()
                     if "choices" in result and len(result["choices"]) > 0:
-                        content = result["choices"][0].get("message", {}).get("content", "").strip()
+                        content = result["choices"][0]["message"]["content"].strip()
                         if content and len(content) > 10:
                             return content
-                
-                if attempt < max_retries - 1:
-                    continue
+                        else:
+                            raise Exception("DeepSeek returned empty or too short response")
+                    else:
+                        raise Exception("No valid choices in DeepSeek response")
+                elif response.status_code == 401:
+                    raise Exception("API authentication failed - check API key")
+                elif response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    raise Exception("API rate limited")
+                else:
+                    error_text = response.text if hasattr(response, 'text') else 'Unknown error'
+                    raise Exception(f"API error {response.status_code}: {error_text}")
                     
-        except Exception as e:
+        except (asyncio.TimeoutError, httpx.TimeoutException):
             if attempt < max_retries - 1:
+                await asyncio.sleep(1)
                 continue
-    
-    return "API评估暂时不可用，使用备用评分机制"
+            raise Exception(f"API timeout after {config.DEEPSEEK_TIMEOUT}s")
+        except httpx.RequestError as e:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1)
+                continue
+            raise Exception(f"Network error: {str(e)}")
+        except Exception as e:
+            if "empty" in str(e) or "short" in str(e):
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                    continue
+            raise e
+            
+    raise Exception("All API attempts failed")
 
 # Create alias function to redirect to new implementation
 async def conduct_dynamic_conversation(api_config: APIConfig, scenario_info: Dict, user_persona_info: Dict) -> List[Dict]:
@@ -3324,14 +1979,18 @@ async def conduct_dynamic_conversation(api_config: APIConfig, scenario_info: Dic
 
 async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info: Dict, user_persona_info: Dict) -> List[Dict]:
     """
-    TRUE dynamic conversation: DeepSeek generates one message at a time based on Coze's actual responses
-    No pre-generated scenarios - pure turn-by-turn interaction
+    TRUE dynamic conversation: DeepSeek generates one message at a time based on AI's actual responses
+    No pre-generated scenarios - pure turn-by-turn interaction with conversation continuity
     """
     print(f"🗣️ 开始真正动态对话: {scenario_info.get('title', '未命名场景')}")
     
     conversation_history = []
     persona = user_persona_info.get('user_persona', {})
     context = user_persona_info.get('usage_context', {})
+    
+    # Initialize conversation manager for continuity
+    conversation_manager = ConversationManager(api_config)
+    conversation_manager.start_new_conversation()
     
     # Step 1: Generate ONLY the initial message based on persona and scenario
     print("🎯 DeepSeek生成初始消息...")
@@ -3341,36 +2000,38 @@ async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info
     
     current_user_message = initial_message
     
-    # Step 2: Conduct true turn-by-turn conversation (max 5 turns)
-    for turn_num in range(1, 6):
+    # Step 2: Conduct true turn-by-turn conversation (reduced to max 3 turns)
+    for turn_num in range(1, 4):  # Changed from range(1, 6) to range(1, 4)
         print(f"💬 第 {turn_num} 轮 - 用户消息: {current_user_message[:50]}...")
         
         # Add persona context for better AI understanding
         enhanced_message = f"[作为{persona.get('role', '用户')}，{persona.get('communication_style', '专业沟通')}] {current_user_message}"
         
-        # Get Coze response with strict timeout
-        coze_response = await call_coze_with_strict_timeout(api_config, enhanced_message)
-        if not coze_response:
-            print(f"❌ 第 {turn_num} 轮Coze无响应，终止对话")
+        # Get AI response with strict timeout and conversation continuity
+        ai_response = await call_coze_with_strict_timeout(api_config, enhanced_message, conversation_manager)
+        if not ai_response:
+            print(f"❌ 第 {turn_num} 轮AI无响应，终止对话")
             break
+        
+        # Clean the AI response to extract meaningful content
+        ai_response = clean_ai_response(ai_response)
             
         # Record this turn
         conversation_history.append({
             "turn": turn_num,
             "user_message": current_user_message,
             "enhanced_message": enhanced_message,
-            "ai_response": coze_response,
-            "response_length": len(coze_response),
+            "ai_response": ai_response,
+            "response_length": len(ai_response),
+            "conversation_id": conversation_manager.get_conversation_id(),
             "timestamp": datetime.now().isoformat()
         })
         
-        print(f"✅ Coze响应: {coze_response[:80]}...")
-        
-        # Generate next message based on Coze's actual response
-        if turn_num < 5:  # Don't generate after last turn
-            print(f"🤖 DeepSeek分析Coze回复，生成第{turn_num + 1}轮消息...")
+        # Generate next message based on AI's actual response
+        if turn_num < 3:  # Don't generate after last turn (changed from 5 to 3)
+            print(f"🤖 DeepSeek分析AI回复，生成第{turn_num + 1}轮消息...")
             next_message = await generate_next_message_based_on_response(
-                scenario_info, user_persona_info, conversation_history, coze_response
+                scenario_info, user_persona_info, conversation_history, ai_response
             )
             
             if not next_message or next_message.upper() in ["END", "FINISH", "DONE"]:
@@ -3382,7 +2043,1470 @@ async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info
     print(f"📊 动态对话完成，共 {len(conversation_history)} 轮")
     return conversation_history
 
+# DeepSeek Configuration
+
+async def call_deepseek_api_enhanced(prompt: str, max_tokens: int = 500, temperature: float = 0.1, max_retries: int = 2) -> str:
+    """
+    Enhanced DeepSeek API call with better configuration and error handling
+    """
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"
+    }
+    
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "top_p": 0.9,
+        "frequency_penalty": 0.1,
+        "presence_penalty": 0.1
+    }
+    
+    # Single attempt - fail fast if there are issues
+    try:
+        # Increased timeout and added better error handling
+        timeout = httpx.Timeout(config.DEEPSEEK_TIMEOUT, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(config.DEEPSEEK_API_URL, json=payload, headers=headers)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if "choices" in result and len(result["choices"]) > 0:
+                    content = result["choices"][0]["message"]["content"]
+                    return content.strip()
+                else:
+                    raise Exception("No valid response choices in API response")
+            elif response.status_code == 429:
+                raise Exception(f"API rate limited (429)")
+            elif response.status_code == 401:
+                raise Exception(f"API authentication failed (401) - check API key")
+            else:
+                error_text = response.text if hasattr(response, 'text') else 'Unknown error'
+                raise Exception(f"API error {response.status_code}: {error_text}")
+                
+    except asyncio.TimeoutError:
+        raise Exception(f"API request timeout after {config.DEEPSEEK_TIMEOUT}s - try increasing timeout in config.py")
+    except httpx.TimeoutException:
+        raise Exception(f"API request timeout after {config.DEEPSEEK_TIMEOUT}s - try increasing timeout in config.py")
+    except httpx.RequestError as e:
+        raise Exception(f"Network error: {str(e)} - check internet connection")
+    except Exception as e:
+        # Re-raise without fallback
+        raise e
+
+# Add after the health check endpoint
+@app.post("/api/download-report")
+async def download_evaluation_report(
+    request: Request,
+    evaluation_data: str = Form(...),
+    format: str = Form("json"),  # json, txt, docx
+    include_transcript: bool = Form(False)
+):
+    """
+    Generate and download evaluation report in specified format
+    """
+    try:
+        # Parse evaluation data
+        eval_results = json.loads(evaluation_data)
+        
+        # 🆕 自动保存评估结果到数据库（如果尚未保存）
+        session_id = None
+        if PYMYSQL_AVAILABLE and config.ENABLE_AUTO_SAVE:
+            try:
+                # 检查评估数据中是否已有session_id
+                session_id = eval_results.get('session_id')
+                if not session_id:
+                    # 如果没有session_id，保存评估结果到数据库
+                    requirement_context = eval_results.get('requirement_document', '')
+                    session_id = await save_evaluation_to_database(eval_results, requirement_context)
+                    print(f"✅ 评估结果已自动保存到数据库，会话ID: {session_id}")
+                
+                # 记录下载活动
+                if session_id:
+                    file_size = len(evaluation_data)  # 估算文件大小
+                    await save_download_record(session_id, format, include_transcript, file_size, request)
+                    print(f"📥 下载记录已保存: {format} 格式，包含对话记录: {include_transcript}")
+                    
+            except Exception as db_error:
+                print(f"⚠️ 数据库保存失败，但报告生成将继续: {db_error}")
+        
+        # 生成并返回报告
+        if format == "json":
+            return generate_json_report(eval_results, include_transcript)
+        elif format == "txt":
+            return generate_txt_report(eval_results, include_transcript)
+        elif format == "docx":
+            return generate_docx_report(eval_results, include_transcript)
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported format")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
+
+def generate_json_report(eval_results: Dict, include_transcript: bool = False) -> JSONResponse:
+    """Generate JSON format report with complete evaluation information"""
+    report_data = {
+        "evaluation_summary": eval_results.get("evaluation_summary", {}),
+        "overall_score": eval_results.get("overall_score", 0),
+        "dimension_scores": eval_results.get("dimension_scores", {}),
+        "detailed_analysis": eval_results.get("detailed_analysis", {}),
+        "recommendations": eval_results.get("recommendations", []),
+        "user_persona_info": eval_results.get("user_persona_info", {}),
+        "detailed_context_display": eval_results.get("detailed_context_display", {}),
+        "persona_alignment_analysis": eval_results.get("persona_alignment_analysis", ""),
+        "business_goal_achievement": eval_results.get("business_goal_achievement", ""),
+        "evaluation_mode": eval_results.get("evaluation_mode", "unknown"),
+        "timestamp": eval_results.get("timestamp", datetime.now().isoformat())
+    }
+    
+    if include_transcript:
+        report_data["conversation_records"] = eval_results.get("conversation_records", [])
+    
+    return JSONResponse(
+        content=report_data,
+        headers={"Content-Disposition": "attachment; filename=evaluation_report.json"}
+    )
+
+def generate_txt_report(eval_results: Dict, include_transcript: bool = False) -> FileResponse:
+    """Generate TXT format report"""
+    import tempfile
+    
+    # Extract scoring information with proper 100-point scale
+    overall_score = eval_results.get('evaluation_summary', {}).get('overall_score', eval_results.get('overall_score', 0))
+    
+    report_content = f"""
+AI Agent Evaluation Report
+=========================
+Generated: {eval_results.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}
+Evaluation Mode: {eval_results.get('evaluation_mode', 'Unknown')}
+
+OVERALL PERFORMANCE
+------------------
+Overall Score: {overall_score}/100.0
+
+DIMENSION SCORES
+---------------
+"""
+    
+    # Use conversation_records to extract dimension scores
+    conversation_records = eval_results.get('conversation_records', [])
+    if conversation_records:
+        for i, record in enumerate(conversation_records, 1):
+            scenario_title = record.get('scenario', {}).get('title', f'Scenario {i}')
+            report_content += f"\n{scenario_title}:\n"
+            scores = record.get('evaluation_scores_with_explanations', record.get('evaluation_scores', {}))
+            for dimension, score_data in scores.items():
+                score = score_data.get('score', score_data) if isinstance(score_data, dict) else score_data
+                dimension_name = dimension.replace('_', ' ').title()
+                report_content += f"  {dimension_name}: {score}/100.0\n"
+    
+    report_content += f"\nDETAILED ANALYSIS\n{'-' * 16}\n"
+    
+    detailed_analysis = eval_results.get('detailed_analysis', {})
+    for dimension, analysis in detailed_analysis.items():
+        report_content += f"\n{dimension.upper()}:\n"
+        if isinstance(analysis, dict):
+            report_content += f"Score: {analysis.get('score', 'N/A')}\n"
+            report_content += f"Analysis: {analysis.get('detailed_analysis', 'No details available')}\n"
+        else:
+            report_content += f"{analysis}\n"
+    
+    report_content += f"\nRECOMMENDations\n{'-' * 15}\n"
+    recommendations = eval_results.get('recommendations', [])
+    for i, rec in enumerate(recommendations, 1):
+        report_content += f"{i}. {rec}\n"
+    
+    if include_transcript:
+        report_content += f"\nCONVERSATION TRANSCRIPT\n{'-' * 22}\n"
+        conversation_records = eval_results.get('conversation_records', [])
+        for record in conversation_records:
+            for turn in record.get('conversation', []):
+                report_content += f"Turn {turn.get('turn', 'N/A')}: {turn.get('user_message', '')}\n"
+                report_content += f"AI Response: {turn.get('ai_response', '')}\n\n"
+    
+    # Create temporary file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as tmp_file:
+        tmp_file.write(report_content)
+        tmp_file_path = tmp_file.name
+    
+    return FileResponse(
+        path=tmp_file_path,
+        filename="evaluation_report.txt",
+        media_type="text/plain"
+    )
+
+def generate_docx_report(eval_results: Dict, include_transcript: bool = False) -> FileResponse:
+    """Generate DOCX format report (if docx library is available)"""
+    if not DOCUMENT_PROCESSING_AVAILABLE:
+        raise HTTPException(status_code=500, detail="DOCX generation not available. Install python-docx.")
+    
+    import tempfile
+    from docx import Document
+    from docx.shared import Inches
+    
+    # Create document
+    doc = Document()
+    
+    # Title
+    title = doc.add_heading('AI Agent Evaluation Report', 0)
+    
+    # Summary section
+    doc.add_heading('Executive Summary', level=1)
+    overall_score = eval_results.get('overall_score', 'N/A')
+    doc.add_paragraph(f'Overall Performance Score: {overall_score}/5.0')
+    doc.add_paragraph(f'Generated: {eval_results.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))}')
+    
+    # Dimension scores
+    doc.add_heading('Performance Dimensions', level=1)
+    dimension_scores = eval_results.get('dimension_scores', {})
+    table = doc.add_table(rows=1, cols=2)
+    table.style = 'Table Grid'
+    hdr_cells = table.rows[0].cells
+    hdr_cells[0].text = 'Dimension'
+    hdr_cells[1].text = 'Score'
+    
+    for dimension, score in dimension_scores.items():
+        row_cells = table.add_row().cells
+        row_cells[0].text = dimension.replace('_', ' ').title()
+        row_cells[1].text = f'{score}/5.0'
+    
+    # Detailed analysis
+    doc.add_heading('Detailed Analysis', level=1)
+    detailed_analysis = eval_results.get('detailed_analysis', {})
+    for dimension, analysis in detailed_analysis.items():
+        doc.add_heading(dimension.replace('_', ' ').title(), level=2)
+        if isinstance(analysis, dict):
+            doc.add_paragraph(f"Score: {analysis.get('score', 'N/A')}")
+            doc.add_paragraph(analysis.get('detailed_analysis', 'No details available'))
+        else:
+            doc.add_paragraph(str(analysis))
+    
+    # Recommendations
+    doc.add_heading('Recommendations', level=1)
+    recommendations = eval_results.get('recommendations', [])
+    for i, rec in enumerate(recommendations, 1):
+        doc.add_paragraph(f'{i}. {rec}')
+    
+    # Conversation transcript (if requested)
+    if include_transcript:
+        doc.add_heading('Conversation Transcript', level=1)
+        conversation_records = eval_results.get('conversation_records', [])
+        for record in conversation_records:
+            scenario_title = record.get('scenario', {}).get('title', 'Unknown Scenario')
+            doc.add_heading(f'Scenario: {scenario_title}', level=2)
+            for turn in record.get('conversation', []):
+                doc.add_paragraph(f"Turn {turn.get('turn', 'N/A')}: {turn.get('user_message', '')}")
+                doc.add_paragraph(f"AI Response: {turn.get('ai_response', '')}")
+                doc.add_paragraph("")  # Empty line for spacing
+    
+    # Save to temporary file
+    with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as tmp_file:
+        tmp_file_path = tmp_file.name
+    
+    doc.save(tmp_file_path)
+    
+    return FileResponse(
+        path=tmp_file_path,
+        filename="evaluation_report.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+async def call_coze_with_strict_timeout(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None) -> str:
+    """
+    Call AI Agent API with strict timeout for dynamic conversations and proper logging
+    """
+    try:
+        # Use the existing AI agent API call with strict timeout and conversation continuity
+        response = await call_ai_agent_api(api_config, message, conversation_manager)
+        
+        # Determine API type for proper logging
+        if "/v1/chat-messages" in api_config.url or "dify" in api_config.url.lower():
+            print(f"✅ Dify API响应: {response[:80]}...")
+        elif "coze" in api_config.url.lower():
+            print(f"✅ Coze API响应: {response[:80]}...")
+        else:
+            print(f"✅ 自定义API响应: {response[:80]}...")
+            
+        return response
+    except Exception as e:
+        print(f"❌ API调用失败: {str(e)}")
+        return ""
+
+async def generate_single_initial_message(scenario_info: Dict, user_persona_info: Dict) -> str:
+    """
+    Generate a single initial message based on scenario and user persona
+    """
+    try:
+        persona = user_persona_info.get('user_persona', {})
+        usage_context = user_persona_info.get('usage_context', {})
+        ai_role = user_persona_info.get('ai_role_simulation', {})
+        
+        # Get fuzzy expressions and opening patterns for this role
+        fuzzy_expressions = ai_role.get('fuzzy_expressions', [])
+        opening_patterns = ai_role.get('opening_patterns', [])
+        
+        generation_prompt = f"""
+你是一个{persona.get('role', '专业用户')}，工作环境是{persona.get('work_environment', '专业环境')}。
+你的沟通风格：{persona.get('communication_style', '专业沟通')}
+当前场景：{scenario_info.get('title', '专业咨询')}
+场景背景：{scenario_info.get('context', '工作场景')}
+
+请生成一个简短的初始问题或需求描述，要求：
+1. 体现{persona.get('role', '用户')}的身份和背景
+2. 表达方式要{persona.get('communication_style', '专业')}
+3. 可以稍微模糊或不完整，需要AI追问澄清
+4. 长度控制在10-30个字
+5. 不要使用引号或特殊符号
+
+示例风格参考（仅参考风格，不要照搬）：
+{', '.join(fuzzy_expressions[:3]) if fuzzy_expressions else '有个问题需要咨询'}
+
+直接输出问题内容，不要任何解释：
+"""
+        
+        response = await call_deepseek_api_enhanced(generation_prompt, temperature=0.6, max_tokens=100)
+        
+        # Clean the response
+        message = response.strip().strip('"').strip("'").strip('。').strip('？').strip('!')
+        
+        if message and len(message) > 3:
+            print(f"✅ 生成初始消息: {message}")
+            return message
+        else:
+            # Fallback to predefined patterns
+            if opening_patterns:
+                import random
+                fallback = random.choice(opening_patterns)
+                print(f"🔄 使用备用开场: {fallback}")
+                return fallback
+            else:
+                return "有个问题需要咨询"
+                
+    except Exception as e:
+        print(f"❌ 初始消息生成失败: {str(e)}")
+        # Ultimate fallback
+        return "请帮忙解决一个问题"
+
+async def generate_next_message_based_on_response(
+    scenario_info: Dict, 
+    user_persona_info: Dict, 
+    conversation_history: List[Dict], 
+    coze_response: str
+) -> str:
+    """
+    Generate next user message based on Coze's response and conversation context
+    """
+    try:
+        persona = user_persona_info.get('user_persona', {})
+        
+        # Analyze the conversation so far
+        turn_count = len(conversation_history)
+        last_user_message = conversation_history[-1]['user_message'] if conversation_history else ""
+        
+        generation_prompt = f"""
+你是一个{persona.get('role', '专业用户')}，正在与AI助手对话。
+沟通风格：{persona.get('communication_style', '专业沟通')}
+场景：{scenario_info.get('title', '专业咨询')}
+
+对话历史：
+{chr(10).join([f"第{turn['turn']}轮 - 我: {turn['user_message']}" for turn in conversation_history[-2:]])}
+AI刚才回复: {coze_response[:200]}
+
+现在是第{turn_count + 1}轮对话。基于AI的回复，请生成你的下一个问题或回应：
+
+要求：
+1. 自然地基于AI的回复内容继续对话
+2. 可以追问细节、要求澄清、或提出新的相关问题  
+3. 保持{persona.get('role', '用户')}的身份和{persona.get('communication_style', '沟通风格')}
+4. 长度10-40个字
+5. 如果AI已经充分回答了问题，可以回复"END"结束对话
+
+直接输出下一句话，不要解释：
+"""
+        
+        response = await call_deepseek_api_enhanced(generation_prompt, temperature=0.7, max_tokens=150)
+        
+        # Clean the response
+        message = response.strip().strip('"').strip("'").strip('。').strip('？').strip('!')
+        
+        if message and len(message) > 2:
+            # Check if it's an end signal
+            if message.upper() in ["END", "FINISH", "DONE", "结束", "完成"]:
+                return "END"
+            
+            print(f"✅ 生成下轮消息: {message}")
+            return message
+        else:
+            # If generation fails, end the conversation
+            return "END"
+            
+    except Exception as e:
+        print(f"❌ 下轮消息生成失败: {str(e)}")
+        return "END"
+
+async def evaluate_conversation_with_deepseek(
+    conversation_history: List[Dict], 
+    scenario_info: Dict, 
+    requirement_context: str = "", 
+    user_persona_info: Dict = None
+) -> tuple:
+    """
+    Enhanced conversation evaluation with detailed explanations and 100-point scoring
+    """
+    try:
+        print("🧠 开始DeepSeek智能评估...")
+        
+        # Build conversation context
+        conversation_text = ""
+        for turn in conversation_history:
+            conversation_text += f"用户: {turn['user_message']}\nAI: {turn['ai_response']}\n\n"
+        
+        # Build evaluation context
+        context_section = f"""
+业务场景: {scenario_info.get('context', '通用AI助手场景')}
+对话主题: {scenario_info.get('title', '')}
+"""
+        
+        # Add persona information if available
+        if user_persona_info:
+            persona = user_persona_info.get('user_persona', {})
+            context_section += f"""
+用户角色: {persona.get('role', '')}
+经验水平: {persona.get('experience_level', '')}
+沟通风格: {persona.get('communication_style', '')}
+工作环境: {persona.get('work_environment', '')}
+"""
+        
+        if requirement_context:
+            context_section += f"\n需求文档上下文:\n{requirement_context[:1000]}"
+        
+        # Enhanced evaluation with detailed explanations
+        evaluation_scores = {}
+        detailed_explanations = {}
+        
+        # Define evaluation dimensions
+        dimensions = {
+            "fuzzy_understanding": "模糊理解与追问能力",
+            "answer_correctness": "回答准确性与专业性",
+            "persona_alignment": "用户匹配度"
+        }
+        
+        if requirement_context:
+            dimensions["goal_alignment"] = "目标对齐度"
+        
+        # Evaluate each dimension with enhanced prompts
+        for dimension, dimension_name in dimensions.items():
+            eval_prompt = f"""
+{context_section}
+
+对话记录:
+{conversation_text}
+
+请评估AI在"{dimension_name}"方面的表现。
+
+评分标准 (1-100分制):
+90-100分: 优秀表现，完全符合要求，超出预期
+80-89分: 良好表现，基本符合期望，有小幅提升空间
+70-79分: 中等表现，满足基本要求，但有明显改进空间
+60-69分: 及格表现，存在一些问题，需要改进
+50-59分: 不及格表现，有重要缺陷
+1-49分: 差劲表现，存在明显问题
+
+请严格按照以下格式输出，确保详细和具体：
+
+评分：XX分
+
+详细分析：
+[请提供详细的分析说明，必须包含以下要点：
+1. 具体表现描述（至少3-4句）
+2. 突出的优势（如果有的话）
+3. 明显的不足或问题
+4. 与该维度标准的对比分析]
+
+具体引用：
+[必须引用具体的对话内容，格式为："第X轮对话中，用户问'...'，AI答'...'，体现了..."，至少引用2处对话]
+
+改进建议：
+[针对该维度的3-5条具体改进措施建议，每条建议要具体可执行]
+
+综合评价：
+[该维度的总体评价，包括是否达到行业标准]
+"""
+            
+            try:
+                response = await call_deepseek_api_enhanced(eval_prompt, temperature=0.2, max_tokens=800)
+                
+                # Extract score (now on 100-point scale)
+                score = extract_score_from_response(response)
+                evaluation_scores[dimension] = score
+                
+                # Parse structured response with enhanced detail
+                parsed_analysis = parse_evaluation_response_enhanced(response, score)
+                
+                # Store detailed explanation with enhanced structure
+                detailed_explanations[dimension] = {
+                    "score": score,
+                    "score_out_of": 100,  # Make it clear this is out of 100
+                    "detailed_analysis": parsed_analysis.get("detailed_analysis", response),
+                    "specific_quotes": parsed_analysis.get("specific_quotes", ""),
+                    "improvement_suggestions": parsed_analysis.get("improvement_suggestions", ""),
+                    "comprehensive_evaluation": parsed_analysis.get("comprehensive_evaluation", ""),
+                    "dimension_name": dimension_name,
+                    "full_response": response,
+                    "score_grade": get_score_grade(score)  # Add grade label
+                }
+                
+                print(f"  ✅ {dimension_name}: {score}/100 ({get_score_grade(score)})")
+                
+            except Exception as e:
+                print(f"  ❌ {dimension_name}评估失败: {str(e)}")
+                evaluation_scores[dimension] = 60.0
+                detailed_explanations[dimension] = {
+                    "score": 60.0,
+                    "score_out_of": 100,
+                    "detailed_analysis": f"评估失败: {str(e)}，请重新尝试评估",
+                    "specific_quotes": "由于技术原因，无法提供具体对话引用",
+                    "improvement_suggestions": "建议检查AI Agent配置后重新评估",
+                    "comprehensive_evaluation": "技术问题导致评估中断",
+                    "dimension_name": dimension_name,
+                    "full_response": f"评估异常: {str(e)}",
+                    "score_grade": "及格"
+                }
+        
+        # Calculate overall score (now average of 100-point scores)
+        scenario_score = sum(evaluation_scores.values()) / len(evaluation_scores) if evaluation_scores else 60.0
+        
+        return evaluation_scores, detailed_explanations, scenario_score
+        
+    except Exception as e:
+        print(f"❌ DeepSeek评估失败: {str(e)}")
+        # Return fallback scores with proper 100-point structure
+        fallback_scores = {
+            "fuzzy_understanding": 60.0,
+            "answer_correctness": 60.0,
+            "persona_alignment": 60.0
+        }
+        fallback_explanations = {
+            dim: {
+                "score": 60.0, 
+                "score_out_of": 100,
+                "detailed_analysis": f"由于技术原因导致评估失败: {str(e)}。请检查网络连接和API配置后重试。",
+                "specific_quotes": "无法获取具体对话引用，建议重新进行评估",
+                "improvement_suggestions": "建议检查AI Agent配置和网络连接状况",
+                "comprehensive_evaluation": "技术故障导致无法完成评估",
+                "dimension_name": dim,
+                "full_response": f"评估系统异常: {str(e)}",
+                "score_grade": "及格"
+            }
+            for dim in fallback_scores.keys()
+        }
+        return fallback_scores, fallback_explanations, 60.0
+
+def get_score_grade(score: float) -> str:
+    """Convert numerical score to grade label"""
+    if score >= 90:
+        return "优秀"
+    elif score >= 80:
+        return "良好"
+    elif score >= 70:
+        return "中等"
+    elif score >= 60:
+        return "及格"
+    else:
+        return "不及格"
+
+def parse_evaluation_response_enhanced(response: str, score: float) -> Dict[str, str]:
+    """
+    Parse enhanced evaluation response to extract different sections with better structure
+    """
+    try:
+        # Initialize result
+        result = {
+            "detailed_analysis": "",
+            "specific_quotes": "",
+            "improvement_suggestions": "",
+            "comprehensive_evaluation": ""
+        }
+        
+        # Split response into lines
+        lines = response.strip().split('\n')
+        current_section = "detailed_analysis"
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Identify section headers
+            if "详细分析" in line or "分析" in line:
+                current_section = "detailed_analysis"
+                continue
+            elif "具体引用" in line or "引用" in line or "对话" in line:
+                current_section = "specific_quotes"
+                continue
+            elif "改进建议" in line or "建议" in line:
+                current_section = "improvement_suggestions"
+                continue
+            elif "综合评价" in line or "评价" in line:
+                current_section = "comprehensive_evaluation"
+                continue
+            elif "评分" in line:
+                continue  # Skip score lines
+            
+            # Add content to current section
+            if line and not line.startswith("评分"):
+                if result[current_section]:
+                    result[current_section] += "\n" + line
+                else:
+                    result[current_section] = line
+        
+        # Ensure all sections have content with enhanced detail
+        if not result["detailed_analysis"]:
+            result["detailed_analysis"] = f"评分 {score} 分（{get_score_grade(score)}）。" + (response[:300] if response else "未提供详细分析")
+            
+        if not result["specific_quotes"]:
+            result["specific_quotes"] = "具体对话引用：由于响应格式限制，未能提取具体引用内容。建议人工查看对话记录进行分析。"
+            
+        if not result["improvement_suggestions"]:
+            result["improvement_suggestions"] = "建议继续优化AI回答质量，提升用户满意度。具体改进措施需要根据对话内容进一步分析。"
+            
+        if not result["comprehensive_evaluation"]:
+            result["comprehensive_evaluation"] = f"该维度得分{score}分，属于{get_score_grade(score)}水平。"
+        
+        return result
+        
+    except Exception as e:
+        print(f"⚠️ 解析评估响应失败: {str(e)}")
+        return {
+            "detailed_analysis": f"评分 {score} 分（{get_score_grade(score)}）。" + (response[:300] if response else "解析失败，未提供详细分析"),
+            "specific_quotes": "由于解析异常，无法提供具体对话引用",
+            "improvement_suggestions": "建议重新进行评估以获取详细建议",
+            "comprehensive_evaluation": f"该维度得分{score}分，但由于解析问题，无法提供完整评价。"
+        }
+
+async def generate_final_comprehensive_report(
+    evaluation_results: List[Dict], 
+    user_persona_info: Dict, 
+    requirement_context: str
+) -> Dict:
+    """
+    Generate comprehensive final report with enhanced analysis
+    """
+    try:
+        print("📊 生成综合分析报告...")
+        
+        # Extract key information
+        total_scenarios = len(evaluation_results)
+        overall_scores = [r.get('scenario_score', 0) for r in evaluation_results]
+        avg_score = sum(overall_scores) / len(overall_scores) if overall_scores else 0
+        
+        persona = user_persona_info.get('user_persona', {})
+        context = user_persona_info.get('usage_context', {})
+        
+        # Generate improvement recommendations
+        recommendations = []
+        
+        if avg_score < 3.0:
+            recommendations.extend([
+                f"🔴 针对{persona.get('role', '用户')}的整体服务能力需要显著改进",
+                f"📚 加强{context.get('business_domain', '专业')}领域的知识库建设",
+                "💡 提升对模糊需求的理解和追问能力"
+            ])
+        elif avg_score < 4.0:
+            recommendations.extend([
+                f"🟡 对{persona.get('role', '用户')}的服务基本满足需求，有优化空间",
+                "🎯 针对用户沟通风格进行个性化优化",
+                "📈 继续提升专业知识的准确性"
+            ])
+        else:
+            recommendations.extend([
+                f"🟢 对{persona.get('role', '用户')}的服务表现优秀",
+                "✨ 保持当前优势，持续优化用户体验",
+                "🚀 可以考虑扩展更多专业场景支持"
+            ])
+        
+        return {
+            "improvement_recommendations": recommendations,
+            "extracted_persona_summary": user_persona_info,
+            "persona_alignment_analysis": f"基于{total_scenarios}个场景的评估，AI对{persona.get('role', '用户')}的适配程度为{avg_score:.2f}/5.0",
+            "business_goal_achievement": f"在{context.get('business_domain', '专业服务')}领域的目标达成度良好，平均得分{avg_score:.2f}分"
+        }
+        
+    except Exception as e:
+        print(f"❌ 综合报告生成失败: {str(e)}")
+        return {
+            "improvement_recommendations": ["系统建议：加强对话理解能力", "系统建议：提高回答准确性"],
+            "extracted_persona_summary": user_persona_info,
+            "persona_alignment_analysis": "基于系统分析生成",
+            "business_goal_achievement": "评估完成"
+        }
+
+def find_available_port(start_port: int = 8000, max_port: int = 8010) -> int:
+    """Find an available port starting from start_port"""
+    for port in range(start_port, max_port + 1):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            result = sock.connect_ex(('localhost', port))
+            sock.close()
+            if result != 0:
+                return port
+        except:
+            continue
+    return start_port
+
+async def extract_user_persona_with_deepseek(requirement_content: str) -> Dict[str, Any]:
+    """
+    Use DeepSeek to extract user persona, context, and role information from requirement document
+    Enhanced with better document analysis and content matching
+    """
+    
+    # First, perform content analysis to identify key domain indicators
+    content_analysis_prompt = f"""
+请仔细分析以下需求文档的内容，并识别关键信息：
+
+文档内容：
+{requirement_content[:1500]}
+
+请识别：
+1. 文档主要涉及的行业/领域（如：建筑工程、银行金融、客服咨询、技术支持等）
+2. 主要业务类型（如：现场监理、规范查询、客户服务、故障排除等）
+3. 用户可能的工作角色（如：工程监理、银行客服、技术工程师等）
+4. 使用场景特征（如：现场作业、办公室工作、移动办公等）
+
+只输出关键词，用逗号分隔，不要解释：
+行业领域：
+业务类型：
+用户角色：
+使用场景：
+"""
+
+    try:
+        # Step 1: Analyze document content
+        content_analysis = await call_deepseek_api_enhanced(content_analysis_prompt, temperature=0.2, max_tokens=200)
+        print(f"📋 内容分析结果: {content_analysis}")
+        
+        # Parse analysis results
+        analysis_lines = content_analysis.strip().split('\n')
+        domain_hints = {}
+        
+        for line in analysis_lines:
+            if '：' in line:
+                key, value = line.split('：', 1)
+                domain_hints[key.strip()] = value.strip()
+        
+        # Step 2: Enhanced extraction with domain-specific guidance
+        extraction_prompt = f"""
+你是一位专业的需求分析师，请根据以下需求文档进行用户画像分析。
+
+**分析原则：** 
+- 基于文档实际内容进行客观分析
+- 识别文档中描述的主要用户群体和使用场景
+- 重点关注最终用户的角色和需求，而非系统开发者
+
+**文档内容分析：**
+行业领域：{domain_hints.get('行业领域', '未识别')}
+业务类型：{domain_hints.get('业务类型', '未识别')}  
+用户角色：{domain_hints.get('用户角色', '未识别')}
+使用场景：{domain_hints.get('使用场景', '未识别')}
+
+**需求文档原文：**
+{requirement_content}
+
+**分析要求：**
+1. 准确识别文档中描述的用户角色和工作场景
+2. 分析用户的专业背景和工作环境特点
+3. 提取典型的对话场景和交互需求
+4. 关注用户的沟通风格和表达习惯
+
+请严格按照JSON格式输出：
+
+{{
+    "user_persona": {{
+        "role": "基于文档内容的具体用户角色（必须与{domain_hints.get('行业领域', '文档领域')}高度匹配）",
+        "experience_level": "基于文档推断的经验水平详细描述", 
+        "expertise_areas": ["与文档主题直接相关的专业领域1", "相关专业领域2"],
+        "communication_style": "符合该行业特点的沟通风格（包括模糊表达特征）",
+        "work_environment": "与文档业务场景匹配的工作环境详细描述",
+        "work_pressure": "该角色典型的工作压力和时间约束"
+    }},
+    "usage_context": {{
+        "primary_scenarios": ["基于文档的主要使用场景1", "相关使用场景2"],
+        "business_domain": "与文档内容严格对应的具体业务领域",
+        "interaction_goals": ["与文档需求直接相关的交互目标1", "相关目标2"],
+        "pain_points": ["文档中体现的痛点问题1", "相关痛点2"],
+        "usage_timing": ["符合该业务特点的使用时机1", "相关时机2"]
+    }},
+    "ai_role_simulation": {{
+        "simulated_user_type": "基于文档内容的用户类型详细描述",
+        "conversation_approach": "符合该行业的对话方式偏好", 
+        "language_characteristics": "该行业用户的语言特点（包括专业术语、表达习惯）",
+        "typical_questions": ["该角色在此业务场景下的典型问题1", "典型问题2", "典型问题3"],
+        "fuzzy_expressions": ["该行业常见的模糊表达1", "模糊表达2", "模糊表达3"],
+        "opening_patterns": ["该角色常用的开场方式1", "开场方式2"],
+        "situational_variations": "该角色在不同工作情况下的表达差异"
+    }},
+    "extracted_requirements": {{
+        "core_functions": ["文档中明确提到的核心功能需求1", "核心需求2"],
+        "quality_expectations": ["文档中体现的质量期望1", "质量期望2"],
+        "interaction_preferences": ["基于业务特点的交互偏好1", "偏好2"]
+    }}
+}}"""
+
+        print("🧠 开始增强的用户画像提取...")
+        
+        # Call API with enhanced error handling
+        response = await call_deepseek_api_enhanced(extraction_prompt, temperature=0.3, max_tokens=1000)
+        print(f"📝 DeepSeek extraction response: {response[:300]}...")
+        
+        # Clean and parse response
+        cleaned_response = response.strip()
+        
+        # Remove markdown code blocks if present
+        if cleaned_response.startswith('```'):
+            lines = cleaned_response.split('\n')
+            start_line = 1
+            end_line = len(lines) - 1
+            
+            # Find actual JSON start and end
+            for i, line in enumerate(lines):
+                if line.strip().startswith('{'):
+                    start_line = i
+                    break
+            
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].strip().endswith('}'):
+                    end_line = i
+                    break
+                    
+            cleaned_response = '\n'.join(lines[start_line:end_line + 1])
+        
+        # Find JSON boundaries
+        start_idx = cleaned_response.find('{')
+        end_idx = cleaned_response.rfind('}')
+        
+        if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
+            raise Exception("DeepSeek response does not contain valid JSON structure")
+        
+        json_str = cleaned_response[start_idx:end_idx+1]
+        
+        try:
+            extraction_result = json.loads(json_str)
+            print("✅ Successfully parsed enhanced extraction result from DeepSeek")
+            
+            # Validate the structure
+            required_keys = ['user_persona', 'usage_context', 'ai_role_simulation', 'extracted_requirements']
+            if not all(key in extraction_result for key in required_keys):
+                raise Exception(f"JSON structure incomplete, missing keys: {[k for k in required_keys if k not in extraction_result]}")
+            
+            # Post-processing validation: ensure role matches domain
+            user_role = extraction_result.get('user_persona', {}).get('role', '')
+            business_domain = extraction_result.get('usage_context', {}).get('business_domain', '')
+            
+            # Domain consistency check
+            domain_mapping = {
+                '建筑': ['工程', '监理', '施工', '建筑'],
+                '工程': ['工程师', '监理', '技术', '现场'],  
+                '银行': ['客服', '金融', '银行', '理财'],
+                '金融': ['客服', '金融', '银行', '理财'],
+                '客服': ['客服', '服务', '咨询', '接待'],
+                '技术': ['技术', '工程师', '开发', '运维']
+            }
+            
+            # Check if role matches domain
+            domain_keywords = domain_hints.get('行业领域', '').lower()
+            role_keywords = user_role.lower()
+            
+            consistency_check = False
+            for domain_key, valid_roles in domain_mapping.items():
+                if domain_key in domain_keywords:
+                    if any(role_word in role_keywords for role_word in valid_roles):
+                        consistency_check = True
+                        break
+            
+            if not consistency_check and domain_keywords:
+                print(f"⚠️ 角色一致性检查失败，重新调整角色匹配")
+                # Adjust role to match domain
+                extraction_result = adjust_role_for_domain_consistency(extraction_result, domain_hints)
+            
+            print(f"✅ 最终提取角色: {extraction_result.get('user_persona', {}).get('role', '未知')}")
+            print(f"✅ 业务领域: {extraction_result.get('usage_context', {}).get('business_domain', '未知')}")
+            
+            return extraction_result
+            
+        except json.JSONDecodeError as e:
+            raise Exception(f"Failed to parse DeepSeek response as JSON: {str(e)}")
+            
+    except Exception as e:
+        print(f"⚠️ Enhanced persona extraction failed: {str(e)}")
+        print("🔄 Using domain-aware fallback persona generation...")
+        
+        # Return domain-aware fallback result
+        fallback_result = create_domain_aware_fallback_result(requirement_content, domain_hints if 'domain_hints' in locals() else {})
+        print("✅ Domain-aware fallback persona generated successfully")
+        return fallback_result
+
+def adjust_role_for_domain_consistency(extraction_result: Dict, domain_hints: Dict) -> Dict:
+    """
+    Perform light adjustment for domain consistency while preserving DeepSeek's analysis
+    """
+    domain = domain_hints.get('行业领域', '').lower()
+    current_role = extraction_result.get('user_persona', {}).get('role', '')
+    
+    print(f"🔍 领域一致性检查: 域={domain}, 角色={current_role}")
+    
+    # Only perform light validation without forcing changes
+    if domain and current_role:
+        # Log the extracted role and domain for debugging
+        print(f"✅ 提取的角色与领域: {current_role} in {domain}")
+        
+        # Basic domain-role matching suggestions (not enforced)
+        suggested_domains = {
+            '建筑': '建筑工程',
+            '工程': '工程技术', 
+            '银行': '银行服务',
+            '金融': '金融服务',
+            '客服': '客户服务',
+            '医疗': '医疗健康',
+            '教育': '教育培训'
+        }
+        
+        # Suggest business domain if not specific enough
+        current_domain = extraction_result.get('usage_context', {}).get('business_domain', '')
+        if not current_domain or current_domain in ['专业服务', '未知']:
+            for keyword, suggested_domain in suggested_domains.items():
+                if keyword in domain:
+                    extraction_result['usage_context']['business_domain'] = suggested_domain
+                    print(f"💡 建议业务领域: {suggested_domain}")
+                    break
+    
+    return extraction_result
+
+def create_domain_aware_fallback_result(requirement_content: str, domain_hints: Dict) -> Dict[str, Any]:
+    """
+    Create a domain-aware fallback result when parsing fails
+    """
+    # Extract domain information
+    domain = domain_hints.get('行业领域', extract_business_domain_from_content(requirement_content))
+    role = domain_hints.get('用户角色', extract_role_from_content(requirement_content))
+    
+    # Ensure role matches domain
+    if '建筑' in domain.lower() or '工程' in domain.lower():
+        role = role if '工程' in role or '监理' in role else '建筑工程监理'
+        business_domain = '建筑工程'
+        typical_questions = ["这个规范要求是什么？", "施工标准符合吗？", "质量检查怎么做？"]
+        fuzzy_expressions = ["这个地方有问题", "标准不太对", "需要检查一下"]
+    elif '银行' in domain.lower() or '金融' in domain.lower():
+        role = role if '客服' in role or '银行' in role else '银行客服代表'
+        business_domain = '银行金融服务'
+        typical_questions = ["客户问这个怎么办？", "这个业务怎么处理？", "政策是什么？"]
+        fuzzy_expressions = ["客户不满意", "又是那个问题", "怎么解释呢"]
+    elif '客服' in domain.lower():
+        role = role if '客服' in role else '客服专员'
+        business_domain = '客户服务'
+        typical_questions = ["客户投诉怎么处理？", "这个问题怎么解决？", "服务标准是什么？"]
+        fuzzy_expressions = ["客户又投诉了", "老问题了", "不知道怎么说"]
+    else:
+        role = role or '专业用户'
+        business_domain = domain or '专业服务'
+        typical_questions = ["这个怎么处理？", "规范要求是什么？", "还有其他方案吗？"]
+        fuzzy_expressions = ["有点问题", "不太对", "怎么处理？"]
+
+    return {
+        "user_persona": {
+            "role": role,
+            "experience_level": "中等经验专业用户",
+            "expertise_areas": [business_domain, "相关专业知识"],
+            "communication_style": "专业但有时表达不完整，贴合行业特点",
+            "work_environment": f"{business_domain}工作环境",
+            "work_pressure": "正常工作压力，注重效率和准确性"
+        },
+        "usage_context": {
+            "primary_scenarios": [f"{business_domain}咨询", "工作支持"],
+            "business_domain": business_domain,
+            "interaction_goals": ["获取准确信息", "解决工作问题"],
+            "pain_points": ["信息不够具体", "回答时间较长"],
+            "usage_timing": ["工作时间", "遇到问题时", "需要确认时"]
+        },
+        "ai_role_simulation": {
+            "simulated_user_type": f"基于{business_domain}的{role}",
+            "conversation_approach": "直接提问，有时表达模糊",
+            "language_characteristics": f"{business_domain}专业术语与日常表达混合",
+            "typical_questions": typical_questions,
+            "fuzzy_expressions": fuzzy_expressions,
+            "opening_patterns": ["关于这个...", "需要咨询...", "有个问题...", "想了解..."],
+            "situational_variations": "工作繁忙时表达简短，正常情况下会详细描述"
+        },
+        "extracted_requirements": {
+            "core_functions": ["准确信息查询", "专业问题解答"],
+            "quality_expectations": ["回答准确", "响应及时", "专业性强"],
+            "interaction_preferences": ["简洁明了", "包含具体示例", "提供操作指导"]
+        }
+    }
+
+def extract_role_from_content(content: str) -> Optional[str]:
+    """Extract user role from content"""
+    if "客服" in content:
+        return "客服代表"
+    elif "监理" in content:
+        return "现场监理工程师"
+    elif "工程师" in content:
+        return "工程师"
+    elif "技术" in content:
+        return "技术人员"
+    return None
+
+def extract_business_domain_from_content(content: str) -> str:
+    """Extract business domain from content"""
+    if "银行" in content or "金融" in content:
+        return "银行金融服务"
+    elif "建筑" in content or "工程" in content:
+        return "建筑工程"
+    elif "客服" in content:
+        return "客户服务"
+    elif "技术" in content:
+        return "技术支持"
+    else:
+        return "专业服务"
+
+async def conduct_dynamic_multi_scenario_evaluation(
+    api_config: APIConfig,
+    user_persona_info: Dict,
+    requirement_context: str
+) -> List[Dict]:
+    """
+    Conduct dynamic multi-scenario evaluation based on extracted user persona
+    """
+    try:
+        print("🎯 开始动态多场景评估...")
+        
+        # Generate 2 dynamic scenarios based on user persona
+        scenarios = await generate_dynamic_scenarios_from_persona(user_persona_info)
+        
+        if not scenarios:
+            print("⚠️ 无法生成动态场景，使用默认场景")
+            scenarios = [
+                {
+                    "title": "基础咨询场景",
+                    "context": f"{user_persona_info.get('usage_context', {}).get('business_domain', '专业服务')}咨询",
+                    "user_profile": user_persona_info.get('user_persona', {}).get('role', '专业用户')
+                },
+                {
+                    "title": "问题解决场景", 
+                    "context": f"{user_persona_info.get('usage_context', {}).get('business_domain', '专业服务')}问题处理",
+                    "user_profile": user_persona_info.get('user_persona', {}).get('role', '专业用户')
+                }
+            ]
+        
+        evaluation_results = []
+        
+        for i, scenario_info in enumerate(scenarios, 1):
+            print(f"📋 场景 {i}/{len(scenarios)}: {scenario_info.get('title', '未命名场景')}")
+            
+            try:
+                # Conduct true dynamic conversation for this scenario
+                conversation_history = await conduct_true_dynamic_conversation(
+                    api_config, scenario_info, user_persona_info
+                )
+                
+                if not conversation_history:
+                    print(f"⚠️ 场景 {i} 对话失败，跳过")
+                    continue
+                
+                # Evaluate the conversation
+                evaluation_scores, detailed_explanations, scenario_score = await evaluate_conversation_with_deepseek(
+                    conversation_history, scenario_info, requirement_context, user_persona_info
+                )
+                
+                # Convert scenario score to 5-point scale for consistency
+                scenario_score_5 = scenario_score / 20.0 if scenario_score > 5 else scenario_score
+                
+                # Create evaluation result
+                evaluation_result = {
+                    "scenario": {
+                        "title": scenario_info.get('title', f'场景 {i}'),
+                        "context": scenario_info.get('context', '动态生成场景'),
+                        "user_profile": scenario_info.get('user_profile', user_persona_info.get('user_persona', {}).get('role', '专业用户'))
+                    },
+                    "conversation_history": conversation_history,
+                    "evaluation_scores": evaluation_scores,
+                    "detailed_explanations": detailed_explanations,
+                    "scenario_score": round(scenario_score_5, 2),  # Use 5-point scale
+                    "scenario_score_100": round(scenario_score, 2),  # Also provide 100-point scale
+                    "evaluation_mode": "dynamic",
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                evaluation_results.append(evaluation_result)
+                print(f"✅ 场景 {i} 评估完成，得分: {scenario_score_5:.2f}/5.0")
+                
+            except Exception as e:
+                print(f"❌ 场景 {i} 评估失败: {str(e)}")
+                continue
+        
+        if not evaluation_results:
+            raise Exception("所有场景评估均失败")
+        
+        print(f"🎯 动态多场景评估完成，共完成 {len(evaluation_results)} 个场景")
+        return evaluation_results
+        
+    except Exception as e:
+        print(f"❌ 动态多场景评估失败: {str(e)}")
+        raise e
+
+async def generate_dynamic_scenarios_from_persona(user_persona_info: Dict) -> List[Dict]:
+    """
+    Generate dynamic scenarios based on extracted user persona
+    """
+    try:
+        persona = user_persona_info.get('user_persona', {})
+        context = user_persona_info.get('usage_context', {})
+        
+        # Generate scenarios based on primary scenarios from persona
+        primary_scenarios = context.get('primary_scenarios', ['专业咨询', '工作支持'])
+        business_domain = context.get('business_domain', '专业服务')
+        role = persona.get('role', '专业用户')
+        
+        scenarios = []
+        
+        # Generate first scenario based on primary use case
+        if len(primary_scenarios) >= 1:
+            scenarios.append({
+                "title": f"{primary_scenarios[0]}场景",
+                "context": f"{business_domain} - {primary_scenarios[0]}",
+                "user_profile": f"{role}，{persona.get('experience_level', '中等经验')}"
+            })
+        
+        # Generate second scenario based on secondary use case or pain points
+        if len(primary_scenarios) >= 2:
+            scenarios.append({
+                "title": f"{primary_scenarios[1]}场景",
+                "context": f"{business_domain} - {primary_scenarios[1]}",
+                "user_profile": f"{role}，{persona.get('experience_level', '中等经验')}"
+            })
+        elif context.get('pain_points'):
+            # Create scenario based on pain points
+            pain_point = context['pain_points'][0] if context['pain_points'] else '效率提升'
+            scenarios.append({
+                "title": f"{pain_point}解决场景",
+                "context": f"{business_domain} - 解决{pain_point}问题",
+                "user_profile": f"{role}，{persona.get('experience_level', '中等经验')}"
+            })
+        
+        return scenarios[:2]  # Return maximum 2 scenarios
+        
+    except Exception as e:
+        print(f"❌ 动态场景生成失败: {str(e)}")
+        return []
+
+@app.post("/api/extract-user-persona")
+async def extract_user_persona(
+    requirement_file: UploadFile = File(None),
+    requirement_text: str = Form(None)
+):
+    """
+    Extract user persona from requirement document
+    """
+    try:
+        print("🎭 开始用户画像提取...")
+        
+        # Handle requirement document
+        requirement_context = ""
+        
+        if requirement_file and requirement_file.filename:
+            print(f"📄 Processing uploaded file: {requirement_file.filename}")
+            requirement_context = await process_uploaded_document_improved(requirement_file)
+        elif requirement_text:
+            print("📝 Using provided text content")
+            requirement_context = requirement_text
+        
+        if not requirement_context:
+            raise HTTPException(status_code=400, detail="请提供需求文档或文本内容")
+            
+        print(f"✅ Document processed, length: {len(requirement_context)} characters")
+        
+        # Extract user persona using enhanced algorithm
+        user_persona_info = await extract_user_persona_with_deepseek(requirement_context)
+        
+        if not user_persona_info:
+            raise HTTPException(status_code=400, detail="无法从需求文档中提取有效的用户画像信息")
+        
+        return {
+            "status": "success",
+            "extraction_result": user_persona_info,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Persona extraction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"用户画像提取失败: {str(e)}")
+
+# Database related functions
+def get_database_connection():
+    """
+    Create database connection
+    """
+    if not PYMYSQL_AVAILABLE or not config.ENABLE_DATABASE_SAVE:
+        return None
+    
+    try:
+        connection = pymysql.connect(**config.DATABASE_CONFIG)
+        return connection
+    except Exception as e:
+        print(f"❌ Database connection failed: {str(e)}")
+        return None
+
+def generate_session_id() -> str:
+    """
+    Generate unique session ID for evaluation
+    """
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    random_suffix = uuid.uuid4().hex[:8]
+    return f"EVAL_{timestamp}_{random_suffix}"
+
+async def save_evaluation_to_database(evaluation_data: Dict, requirement_context: str = "") -> str:
+    """
+    Save evaluation results to database
+    Returns session_id if successful, None if failed
+    """
+    if not PYMYSQL_AVAILABLE or not config.ENABLE_DATABASE_SAVE:
+        print("📝 Database save disabled or PyMySQL not available")
+        return None
+    
+    connection = get_database_connection()
+    if not connection:
+        print("❌ Cannot connect to database")
+        return None
+    
+    session_id = generate_session_id()
+    
+    try:
+        with connection.cursor() as cursor:
+            # Insert main evaluation session
+            insert_session_sql = """
+                INSERT INTO ai_evaluation_sessions (
+                    session_id, overall_score, total_scenarios, total_conversations,
+                    evaluation_mode, evaluation_framework, requirement_document,
+                    ai_agent_config, user_persona_info, evaluation_summary, recommendations
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            evaluation_summary = evaluation_data.get('evaluation_summary', {})
+            
+            # Convert 100-point scale to 5-point scale for database storage
+            overall_score = evaluation_summary.get('overall_score', 0)
+            if overall_score > 5:  # If it's 100-point scale, convert to 5-point scale
+                overall_score_5_point = overall_score / 20.0  # Convert 100-point to 5-point
+            else:
+                overall_score_5_point = overall_score
+            
+            cursor.execute(insert_session_sql, (
+                session_id,
+                round(overall_score_5_point, 2),  # Store as 5-point scale
+                evaluation_summary.get('total_scenarios', 0),
+                evaluation_summary.get('total_conversations', 0),
+                evaluation_data.get('evaluation_mode', 'manual'),
+                evaluation_summary.get('framework', 'AI Agent 3维度评估框架'),
+                requirement_context[:5000] if requirement_context else None,  # Limit length
+                json.dumps(evaluation_data.get('ai_agent_config', {})),
+                json.dumps(evaluation_data.get('user_persona_info', {})),
+                json.dumps(evaluation_summary),
+                json.dumps(evaluation_data.get('recommendations', []))
+            ))
+            
+            # Insert conversation scenarios and records
+            conversation_records = evaluation_data.get('conversation_records', [])
+            
+            for scenario_index, record in enumerate(conversation_records):
+                scenario = record.get('scenario', {})
+                conversation_history = record.get('conversation_history', [])
+                evaluation_scores = record.get('evaluation_scores_with_explanations', {})
+                
+                # Insert scenario
+                insert_scenario_sql = """
+                    INSERT INTO ai_conversation_scenarios (
+                        session_id, scenario_index, scenario_title, scenario_context,
+                        user_profile, scenario_score, conversation_turns
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """
+                
+                cursor.execute(insert_scenario_sql, (
+                    session_id,
+                    scenario_index,
+                    scenario.get('title', f'场景 {scenario_index + 1}'),
+                    scenario.get('context', ''),
+                    scenario.get('user_profile', ''),
+                    record.get('scenario_score', 0),
+                    len(conversation_history)
+                ))
+                
+                scenario_id = cursor.lastrowid
+                
+                # Insert conversation turns
+                for turn in conversation_history:
+                    insert_turn_sql = """
+                        INSERT INTO ai_conversation_turns (
+                            session_id, scenario_id, turn_number, user_message,
+                            enhanced_message, ai_response, response_length
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    
+                    cursor.execute(insert_turn_sql, (
+                        session_id,
+                        scenario_id,
+                        turn.get('turn', 0),
+                        turn.get('user_message', ''),
+                        turn.get('enhanced_message', ''),
+                        turn.get('ai_response', ''),
+                        len(turn.get('ai_response', ''))
+                    ))
+                
+                # Insert evaluation scores
+                for dimension_name, score_data in evaluation_scores.items():
+                    if isinstance(score_data, dict):
+                        insert_score_sql = """
+                            INSERT INTO ai_evaluation_scores (
+                                session_id, scenario_id, dimension_name, dimension_label,
+                                score, detailed_analysis, specific_quotes,
+                                improvement_suggestions, full_response
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """
+                        
+                        dimension_labels = {
+                            'fuzzy_understanding': '模糊理解与追问能力',
+                            'answer_correctness': '回答准确性与专业性',
+                            'persona_alignment': '用户匹配度',
+                            'goal_alignment': '目标对齐度'
+                        }
+                        
+                        cursor.execute(insert_score_sql, (
+                            session_id,
+                            scenario_id,
+                            dimension_name,
+                            dimension_labels.get(dimension_name, dimension_name),
+                            score_data.get('score', 0),
+                            score_data.get('detailed_analysis', ''),
+                            score_data.get('specific_quotes', ''),
+                            score_data.get('improvement_suggestions', ''),
+                            score_data.get('full_response', '')
+                        ))
+        
+        connection.commit()
+        print(f"✅ Evaluation data saved to database with session_id: {session_id}")
+        return session_id
+        
+    except Exception as e:
+        connection.rollback()
+        print(f"❌ Failed to save evaluation to database: {str(e)}")
+        print(f"Full traceback: {traceback.format_exc()}")
+        return None
+    finally:
+        connection.close()
+
+async def save_download_record(session_id: str, download_format: str, include_transcript: bool, 
+                             file_size: int = None, request: Request = None) -> bool:
+    """
+    Record download activity
+    """
+    if not PYMYSQL_AVAILABLE or not config.ENABLE_DATABASE_SAVE:
+        return False
+    
+    connection = get_database_connection()
+    if not connection:
+        return False
+    
+    try:
+        with connection.cursor() as cursor:
+            client_ip = request.client.host if request else None
+            user_agent = request.headers.get("user-agent") if request else None
+            
+            insert_sql = """
+                INSERT INTO ai_report_downloads (
+                    session_id, download_format, include_transcript,
+                    file_size, download_ip, user_agent
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            
+            cursor.execute(insert_sql, (
+                session_id, download_format, include_transcript,
+                file_size, client_ip, user_agent
+            ))
+        
+        connection.commit()
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to save download record: {str(e)}")
+        return False
+    finally:
+        connection.close()
+
+def clean_ai_response(response: str) -> str:
+    """
+    Clean AI response to extract meaningful content from JSON responses
+    """
+    try:
+        # If response looks like JSON, try to extract the actual answer
+        if response.strip().startswith('{') and '"tool_output_content"' in response:
+            try:
+                # Parse JSON and extract tool_output_content
+                response_json = json.loads(response)
+                if "tool_output_content" in response_json:
+                    content = response_json["tool_output_content"]
+                    
+                    # Look for "答案：" pattern and extract content after it
+                    if "答案：" in content:
+                        answer_part = content.split("答案：", 1)[1]
+                        # Clean up common suffixes
+                        answer_part = answer_part.replace("\\n参考依据：", "").replace("\\n依据来源：", "")
+                        return answer_part.strip()
+                    else:
+                        return content.strip()
+            except json.JSONDecodeError:
+                pass
+        
+        # Check for msg_type stream_plugin_finish pattern
+        if '"msg_type":"stream_plugin_finish"' in response:
+            try:
+                # Extract from the data field
+                import re
+                pattern = r'"tool_output_content":"([^"]+)"'
+                match = re.search(pattern, response)
+                if match:
+                    content = match.group(1)
+                    # Unescape common characters
+                    content = content.replace('\\n', '\n').replace('\\"', '"')
+                    
+                    # Look for "答案：" pattern
+                    if "答案：" in content:
+                        answer_part = content.split("答案：", 1)[1]
+                        # Clean up common suffixes
+                        answer_part = answer_part.replace("\\n参考依据：", "").replace("\\n依据来源：", "")
+                        return answer_part.strip()
+                    else:
+                        return content.strip()
+            except Exception:
+                pass
+        
+        # Look for "答案：" pattern in regular text
+        if "答案：" in response:
+            answer_part = response.split("答案：", 1)[1]
+            # Clean up and return first substantial line
+            lines = answer_part.split('\n')
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('参考依据：') and not line.startswith('依据来源：'):
+                    return line
+        
+        # Return cleaned response as-is
+        return response.strip()
+        
+    except Exception as e:
+        print(f"⚠️ 响应清理失败: {str(e)}")
+        return response.strip()
+
 if __name__ == "__main__":
-    port = find_available_port()
+    port = find_available_port(config.DEFAULT_PORT)
     print(f"🚀 AI Agent评估平台启动在端口 {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port) 
+    uvicorn.run(app, host=config.DEFAULT_HOST, port=port) 
