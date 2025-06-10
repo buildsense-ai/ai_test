@@ -1644,8 +1644,12 @@ async def evaluate_agent_dynamic(
     3. Conduct 2-3 rounds per scenario based on AI responses
     4. Generate comprehensive final report
     """
-    # Add timeout protection for the entire evaluation (increased to 8 minutes)
-    evaluation_timeout = 480  # 8 minutes total timeout
+    # Add timeout protection for the entire evaluation (increased to 10 minutes)
+    evaluation_timeout = 600  # 10 minutes total timeout
+    
+    # Check memory usage before starting evaluation
+    if check_memory_usage() > config.MEMORY_WARNING_THRESHOLD:
+        logger.warning(f"⚠️ High memory usage detected: {check_memory_usage():.1f}%")
     
     try:
         # Wrap the entire evaluation in a timeout
@@ -1661,7 +1665,7 @@ async def evaluate_agent_dynamic(
         logger.error(f"⏰ Dynamic evaluation timed out after {evaluation_timeout} seconds")
         raise HTTPException(
             status_code=408, 
-            detail=f"评估超时：评估过程超过{evaluation_timeout//60}分钟限制。建议：1) 检查网络连接，2) 简化需求文档内容，3) 确认AI Agent响应速度正常。"
+            detail=f"评估超时：评估过程超过{evaluation_timeout//60}分钟限制。建议：1) 检查网络连接，2) 简化需求文档内容，3) 确认AI Agent响应速度正常，4) 重新启动服务器释放内存。"
         )
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -2861,18 +2865,30 @@ async def call_coze_with_strict_timeout(api_config: APIConfig, message: str, con
     Call AI Agent API with strict timeout for dynamic conversations and proper logging
     """
     try:
-        # Use the existing AI agent API call with strict timeout and conversation continuity
-        response = await call_ai_agent_api(api_config, message, conversation_manager, use_raw_message)
+        # Add memory check before API call to prevent crashes
+        memory_usage = check_memory_usage()
+        if memory_usage > config.MEMORY_CRITICAL_THRESHOLD:
+            raise Exception(f"Memory usage critical: {memory_usage:.1f}%. Please restart server.")
         
-        # Determine API type for proper logging
+        # Use timeout wrapper for individual API calls
+        response = await asyncio.wait_for(
+            call_ai_agent_api(api_config, message, conversation_manager, use_raw_message),
+            timeout=config.DEFAULT_REQUEST_TIMEOUT  # 2 minutes for individual calls
+        )
+        
+        # Determine API type for proper logging (reduced verbosity)
         if "/v1/chat-messages" in api_config.url or "dify" in api_config.url.lower():
-            print(f"✅ Dify API响应: {response[:80]}...")
+            print(f"✅ Dify API响应 ({len(response)} chars)")
         elif "coze" in api_config.url.lower():
-            print(f"✅ Coze API响应: {response[:80]}...")
+            print(f"✅ Coze API响应 ({len(response)} chars)")
         else:
-            print(f"✅ 自定义API响应: {response[:80]}...")
+            print(f"✅ 自定义API响应 ({len(response)} chars)")
             
         return response
+        
+    except asyncio.TimeoutError:
+        print(f"⏰ API调用超时 ({config.DEFAULT_REQUEST_TIMEOUT}秒)")
+        return ""
     except Exception as e:
         print(f"❌ API调用失败: {str(e)}")
         return ""
