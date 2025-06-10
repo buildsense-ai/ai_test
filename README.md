@@ -1,4 +1,4 @@
-# AI Agent Evaluation Platform v4.0
+# AI Agent Evaluation Platform v4.2
 
 🚀 **DEPLOYMENT READY** - All configuration is hardcoded for easy deployment!
 
@@ -201,6 +201,27 @@ The platform includes comprehensive error handling:
 - **Fixed Coze API Integration**: Resolved "no valid response content" errors with proper SSE streaming support
 
 ## 🔧 Recent Updates
+
+### v4.2 - Enhanced Evaluation Display & Raw Message Processing
+
+- **📊 Fixed Scoring System**: Standardized all scores to 0-100 scale across all evaluation components
+- **🎯 Enhanced Evaluation Display**: Improved visibility of detailed analysis sections and comprehensive scoring
+- **💬 Raw Message Processing**: Added support for raw user message processing without persona enhancement
+- **🔍 Modular Debug Logging**: Implemented comprehensive debug logs with message traceability
+- **⚡ Technical Improvements**: 
+  - Standardized score normalization across evaluation dimensions
+  - Enhanced persona extraction and user role identification
+  - Improved report generation with detailed analysis display
+  - Better error handling and fallback mechanisms
+- **🎨 UI/UX Enhancements**:
+  - Better visibility of detailed analysis sections
+  - Improved score display consistency
+  - Enhanced recommendation generation
+  - Clearer evaluation summary presentation
+- **🛠️ Bug Fixes**:
+  - Resolved persona alignment scoring inconsistencies
+  - Enhanced document processing reliability
+  - Improved error message clarity
 
 ### v4.1 - Coze API Integration Fix
 - **✅ Fixed Coze API Response Parsing**: Resolved critical issue where Coze API returned "no valid response content in coze api result"
