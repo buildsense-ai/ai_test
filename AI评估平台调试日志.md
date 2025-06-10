@@ -604,8 +604,6 @@ detailed_explanations[dimension] = {
 
 ---
 
----
-
 ### 7. conversation_id 未定义错误修复 ⭐ **2024年12月19日修复**
 
 #### 问题描述
@@ -666,8 +664,6 @@ conversation_history.append({
 - **对象方法调用**: 从管理对象中获取状态信息而不是依赖局部变量
 - **代码审查重要性**: 仔细检查变量引用和定义的一致性
 - **测试覆盖度**: 需要端到端测试完整的评估流程
-
----
 
 ---
 
@@ -760,8 +756,6 @@ evaluation_result = {
 
 ---
 
----
-
 ### 9. 变量名未更新错误修复 ⭐ **2024年12月19日修复**
 
 #### 问题描述
@@ -813,8 +807,6 @@ print(f"🎯 动态评估完成！综合得分: {overall_score_100:.2f}/100.0")
 - **IDE工具重要性**: 使用IDE的"查找和替换"功能确保完整性
 - **测试覆盖**: 端到端测试能发现此类遗漏问题
 - **代码审查**: 重构后需要仔细审查所有相关代码
-
----
 
 ---
 
@@ -1234,3 +1226,363 @@ function formatAnalysisText(text) {
 **最后更新**: 2024年12月9日  
 **维护者**: AI Assistant  
 **状态**: 生产就绪 ✅ (评估显示系统完全重构，100分制标准化，用户体验显著提升) 
+
+# AI评估平台调试日志 v5.0
+
+## 🔧 已解决问题列表
+
+### 1. 评分系统标准化 (2024-12-30 解决)
+**问题**: 评分系统在100分制和5分制之间混乱，导致显示错误
+**解决方案**: 
+- 标准化为100分制为主，保留5分制兼容性
+- 修复前端显示逻辑，确保正确显示100分制得分
+- 修复数据库存储，使用5分制存储但在前端显示100分制
+
+### 2. 用户画像提取和显示优化 (2024-12-30 解决)
+**问题**: 用户画像信息提取不准确，显示不完整
+**解决方案**:
+- 增强DeepSeek画像提取算法
+- 添加领域一致性检查
+- 优化前端画像信息显示布局
+
+### 3. 数据库连接和存储错误 (2024-12-30 解决)
+**问题**: `RangeError: Invalid count value` 数据库字段超出范围
+**解决方案**:
+- 调整数据库字段数据类型
+- 添加数据验证和范围检查
+- 改进错误处理机制
+
+### 4. 前端兼容性问题 (2024-12-30 解决)
+**问题**: 前端期望5分制但收到100分制数据
+**解决方案**:
+- 统一评分显示逻辑
+- 添加数据格式转换
+- 改进前端错误处理
+
+## 🆕 新增问题和解决方案
+
+### 5. 云部署API超时和响应问题 (2024-12-30)
+
+**问题现象**:
+```
+net::ERR_EMPTY_RESPONSE
+TypeError: Failed to fetch
+```
+
+**原因分析**:
+1. 云服务器资源限制导致评估过程超时
+2. AI响应中包含系统内存信息污染对话
+
+**具体问题**:
+- AI回复中出现: `{"msg_type":"time_capsule_recall","data":"..."}`
+- 评估过程在最后阶段失败，无响应返回
+- 对话序列被系统消息干扰
+
+**解决方案**:
+
+#### A. 添加评估超时保护
+```python
+# 为整个评估过程添加5分钟超时
+evaluation_timeout = 300  # 5 minutes
+evaluation_result = await asyncio.wait_for(
+    _perform_dynamic_evaluation_internal(...),
+    timeout=evaluation_timeout
+)
+```
+
+#### B. 增强AI响应清理机制
+```python
+def clean_ai_response(response: str) -> str:
+    # 检测并过滤系统消息
+    system_indicators = [
+        '"msg_type":"time_capsule_recall"',
+        '"msg_type":"conversation_summary"', 
+        '"wraped_text":"# 以下信息来源于用户与你对话',
+        '用户记忆点信息',
+        'origin_search_results'
+    ]
+    
+    if any(indicator in response for indicator in system_indicators):
+        print("🚫 Detected system/memory message, skipping")
+        return ""  # 返回空字符串触发对话结束
+```
+
+#### C. 改进动态对话容错机制
+```python
+# 添加失败计数器和重试逻辑
+failed_turns = 0
+for turn_num in range(1, 4):
+    try:
+        # 获取AI响应
+        ai_response = await call_coze_with_strict_timeout(...)
+        cleaned_response = clean_ai_response(ai_response)
+        
+        # 如果响应被过滤（系统消息），跳过此轮
+        if not cleaned_response:
+            failed_turns += 1
+            if failed_turns >= 2:
+                break
+            continue
+        
+        failed_turns = 0  # 重置失败计数
+        # 继续对话...
+        
+    except Exception as e:
+        failed_turns += 1
+        if failed_turns >= 2:
+            break
+        continue
+```
+
+#### D. 分离评估函数以提供更好的错误隔离
+```python
+@app.post("/api/evaluate-agent-dynamic")
+async def evaluate_agent_dynamic(...):
+    try:
+        return await asyncio.wait_for(
+            _perform_dynamic_evaluation_internal(...),
+            timeout=300
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=408, detail="评估超时")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"评估错误: {str(e)}")
+```
+
+### 技术细节
+
+**问题根因**: 
+1. Coze/Dify API返回的响应中包含内部系统消息
+2. 这些消息包含用户记忆、画像等评估相关内容
+3. 未被正确过滤，导致对话逻辑混乱
+
+**核心修复**:
+1. 增强响应过滤：识别并移除所有系统消息类型
+2. 超时保护：防止云环境下长时间卡住
+3. 容错机制：允许部分对话失败但保证整体评估完成
+4. 错误隔离：将内部函数分离，提供更好的异常处理
+
+#### E. 修复Coze API响应内容提取
+**问题**: Coze API返回的SSE流式响应中包含真实对话内容，但解析逻辑不完整
+**解决方案**:
+```python
+# 增强SSE响应解析，优先级排序提取内容
+# 1. 主要回答 (conversation.message.completed)  
+# 2. 助手消息集合 (排除系统消息)
+# 3. 流式内容 (conversation.message.delta)
+# 4. 系统消息过滤后返回空
+```
+
+#### F. 添加对话备用机制  
+**问题**: 当Coze只返回系统消息时，对话无法继续
+**解决方案**:
+```python
+# 当AI响应被过滤时，使用DeepSeek生成备用回复
+if not cleaned_response:
+    fallback_prompt = f"""
+    作为{role}，请对以下问题给出专业回复：
+    用户问题：{user_message}
+    """
+    fallback_response = await call_deepseek_api_enhanced(fallback_prompt)
+```
+
+## ⚠️ 当前状态  
+- ✅ 响应清理机制已增强
+- ✅ 评估超时保护已添加  
+- ✅ 动态对话容错已改进
+- ✅ 错误处理已优化
+- ✅ Coze API内容提取已修复
+- ✅ DeepSeek备用回复机制已添加
+
+## 📋 待验证项目
+1. 云环境下的5分钟超时是否足够
+2. 系统消息过滤是否覆盖所有情况
+3. 评估结果的数据完整性
+4. 数据库自动保存在云环境下的稳定性
+
+### 6. 生产环境日志优化和性能提升 (2024-12-30 最新)
+
+**问题现象**:
+```
+📝 Delta content: 答案
+📝 Delta content: ：一般
+📝 Delta content: 来说，长边和短边的
+评估超时：评估过程超过300秒限制
+```
+
+**问题分析**:
+1. Delta内容的详细日志输出影响界面可读性
+2. 5分钟评估超时在复杂场景下不够用
+3. 评估过程对话记录格式需要优化
+
+**解决方案**:
+
+#### A. 生产环境日志清理
+```python
+# 移除冗余的delta内容打印，保持界面清洁
+# 原来: print(f"📝 Delta content: {content_chunk}")
+# 优化: 不打印详细delta内容，仅保留关键状态
+
+# 原来: print(f"✅ Using main answer ({len(main_answer)} chars): {main_answer[:100]}...")
+# 优化: print(f"✅ Found main answer ({len(main_answer)} chars)")
+```
+
+#### B. 评估超时优化
+```python
+# 从5分钟增加到8分钟
+evaluation_timeout = 480  # 8 minutes total timeout
+
+# 改善超时错误提示
+detail=f"评估超时：评估过程超过{evaluation_timeout//60}分钟限制。建议：1) 检查网络连接，2) 简化需求文档内容，3) 确认AI Agent响应速度正常。"
+```
+
+#### C. 对话记录完整性保证
+```python
+# 确保评估使用完整对话记录，格式清晰
+conversation_text = "完整对话记录:\n"
+for turn in conversation_history:
+    conversation_text += f"第{turn['turn']}轮:\n"
+    conversation_text += f"用户: {turn['user_message']}\n"
+    conversation_text += f"AI回答: {turn['ai_response']}\n\n"
+```
+
+#### D. 评估提示词优化
+```python
+# 简化评估提示词，减少DeepSeek处理时间
+# 原来: max_tokens=800, 详细格式要求
+# 优化: max_tokens=500, 简洁格式输出
+```
+
+## ✅ 最新修复状态 (2024-12-30 20:30)
+
+### 🎯 生产优化完成
+- ✅ **日志清理**: 移除冗余delta打印，界面更清洁
+- ✅ **性能提升**: 超时从5分钟增至8分钟，减少超时失败
+- ✅ **对话完整性**: 确保评估使用完整格式化对话记录
+- ✅ **提示词优化**: 简化评估提示，提高处理速度
+
+### 🔧 技术改进
+- 响应解析保持功能完整，仅清理冗余日志
+- 评估超时保护增强，用户友好错误提示
+- 对话记录格式标准化，提高评估准确性
+- DeepSeek API调用优化，减少token消耗
+
+## 🔄 下次调试重点
+1. 监控8分钟超时在实际使用中的表现
+2. 观察简化后的评估质量是否保持稳定
+3. 收集用户对清洁界面的反馈
+4. 考虑添加评估进度指示器
+
+---
+*更新时间: 2024-12-30 20:30*
+*版本: v5.1 - 生产环境优化版* 
+
+## 问题跟踪与解决记录
+
+### 2024-12-19: 评估结果显示和功能优化
+- ✅ **已解决**: 评分制统一为100分制，提升显示一致性和用户理解
+- ✅ **已解决**: 详细分析面板显示优化，所有维度分析内容可见
+- ✅ **已解决**: 评估报告综合信息展示，包含画像信息和评估方法论
+- ✅ **已解决**: 数据库兼容性问题，评分存储标准化
+
+### 2024-12-19: 原始消息处理模式实现
+- ✅ **已解决**: 用户消息增强问题 - AI测试中使用模板化消息而非原始用户输入
+- ✅ **新功能**: 添加 `use_raw_messages` 参数，支持发送原始用户消息到AI Agent
+- ✅ **新功能**: 完整的消息追踪调试日志，区分RAW模式和ENHANCED模式
+- ✅ **新功能**: Coze对话JSON解析功能，提取原始用户消息
+- ✅ **新功能**: 新增 `/api/test-with-raw-coze-conversation` 端点，直接测试原始Coze对话
+
+### 2024-12-19: 动态对话流程修正
+- ✅ **已修正**: 动态对话流程错误 - 移除了错误的消息增强逻辑
+- ✅ **流程优化**: 正确实现 DeepSeek(画像) → 原始消息 → Coze → 回复 → DeepSeek(分析) 循环
+- ✅ **调试增强**: 添加详细的流程追踪日志，显示每步的具体操作
+- ✅ **代码清理**: 移除了混淆的增强模式标记，统一使用原始消息传递
+
+## 功能特性
+
+### 评估模式
+- **手动模式**: 用户配置对话场景，手动定义测试轮次
+- **自动模式**: 基于需求文档智能提取用户画像，自动生成对话场景
+- **动态模式**: 基于AI实际回复动态生成下轮对话，真实模拟用户交互
+
+### 消息处理模式 (新增)
+- **增强模式 (ENHANCED)**: 在用户消息前添加画像上下文，如 `[作为工程监理，专业沟通] 用户原始消息`
+- **原始模式 (RAW)**: 直接发送用户原始消息，不添加任何增强或模板化内容
+- **调试追踪**: 全流程日志记录，显示发送到AI的确切消息内容
+
+### API支持
+- **Coze Bot API**: 支持原始消息和增强消息模式
+- **Dify API**: 完整的对话连续性支持
+- **自定义API**: 通用接口适配
+
+### 评估维度 (100分制)
+- **模糊理解与追问能力**: 处理不完整或模糊需求的能力
+- **回答准确性与专业性**: 提供正确且专业的答案
+- **用户匹配度**: 适应用户角色和沟通风格
+- **目标对齐度**: 符合业务需求和预期目标
+
+## 当前状态
+
+### ✅ 已完成功能
+1. **评分系统标准化**: 统一为100分制，兼容旧5分制数据
+2. **用户画像智能提取**: DeepSeek自动分析需求文档
+3. **动态对话生成**: 基于AI实际回复生成后续轮次
+4. **原始消息模式**: 支持发送未经处理的用户原始输入
+5. **Coze JSON解析**: 从Coze对话数据提取真实用户消息
+6. **完整调试日志**: 详细追踪消息处理和API调用过程
+7. **数据库自动保存**: 评估结果持久化存储
+8. **多格式报告导出**: JSON、TXT、DOCX格式支持
+
+### 🚀 技术亮点
+- **智能对话生成**: DeepSeek驱动的动态场景创建
+- **消息处理灵活性**: 支持原始和增强两种消息模式
+- **API兼容性**: 支持Coze、Dify等主流AI平台
+- **评估准确性**: 基于用户画像的个性化评估
+- **调试友好**: 完整的日志追踪和错误处理
+
+### 🔧 核心API端点
+- `POST /api/evaluate-agent-dynamic`: 动态评估（支持原始消息模式）
+- `POST /api/test-with-raw-coze-conversation`: 测试原始Coze对话
+- `POST /api/extract-user-persona`: 用户画像提取
+- `POST /api/validate-config`: API配置验证
+
+### 📊 使用统计
+- 支持3种评估模式，4个评估维度
+- 100分制标准化评分系统
+- 平均每次评估2-3个对话场景，6-9轮对话
+- 支持Coze Bot、Dify、自定义API等多种AI Agent类型
+
+## 下一步计划
+
+### 🎯 待优化功能
+1. **批量测试支持**: 支持多个Coze对话JSON的批量处理
+2. **实时消息追踪**: WebSocket支持实时查看消息处理过程
+3. **A/B测试模式**: 同时对比原始模式和增强模式的效果
+4. **插件API调用优化**: 确保插件接收到的是真实用户输入
+5. **对话质量分析**: 基于消息处理模式的效果对比分析
+
+### 🔧 技术改进
+- 消息处理模式的前端UI选择器
+- 更详细的API调用日志和错误追踪
+- 支持自定义消息增强模板
+- 插件API调用的完整性验证
+
+## 调试技巧
+
+### 检查消息处理模式
+```bash
+# 查看日志中的消息处理标识
+grep "RAW MESSAGE MODE\|ENHANCED MODE" logs/
+```
+
+### 验证原始消息提取
+```bash
+# 检查Coze JSON解析日志
+grep "COZE JSON\|EXTRACTED" logs/
+```
+
+### API调用追踪
+```bash
+# 追踪具体的API调用
+grep "使用原始消息\|使用增强消息" logs/
+```

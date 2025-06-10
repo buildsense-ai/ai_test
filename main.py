@@ -292,6 +292,9 @@ class EvaluationRequest(BaseModel):
     requirement_doc: Optional[str] = Field(default="", description="Requirement document for context")
     conversation_scenarios: List[ConversationScenario] = Field(..., description="Test scenarios")
     
+    # Message processing options
+    use_raw_messages: Optional[bool] = Field(default=False, description="Use raw user messages without persona enhancement")
+    
     # Coze compatibility (temporary until full API support)
     coze_bot_id: Optional[str] = Field(default=None, description="Coze Bot ID for current implementation")
 
@@ -407,16 +410,22 @@ async def call_deepseek_api(prompt: str, max_retries: int = 2) -> str:
             
     raise Exception("All API attempts failed")
 
-async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None) -> str:
+async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None, use_raw_message: bool = False) -> str:
     """Call AI Agent API - supports Coze, Dify, and custom APIs with conversation continuity"""
     try:
+        # 🐛 Debug log for user message tracing
+        if use_raw_message:
+            print(f"🔍 [RAW MESSAGE MODE] Using exact user input: {message[:100]}...")
+        else:
+            print(f"🔍 [ENHANCED MODE] Using processed message: {message[:100]}...")
+        
         # Check if we should use Coze API (either explicit coze URL or fallback URL)
         if "coze" in api_config.url.lower() or "fallback" in api_config.url.lower():
-            return await call_coze_api_fallback(message)
+            return await call_coze_api_fallback(message, use_raw_message=use_raw_message)
         # Check if this is a Dify API (based on URL pattern)
         elif "/v1/chat-messages" in api_config.url or "dify" in api_config.url.lower():
             conversation_id = conversation_manager.get_conversation_id() if conversation_manager else ""
-            response_content, new_conversation_id = await call_dify_api(api_config, message, conversation_id)
+            response_content, new_conversation_id = await call_dify_api(api_config, message, conversation_id, use_raw_message=use_raw_message)
             
             # Update conversation manager with new conversation ID
             if conversation_manager and new_conversation_id:
@@ -428,7 +437,11 @@ async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_ma
             headers = api_config.headers.copy()
             headers.setdefault("Content-Type", "application/json")
             
-            payload = {"message": message, "query": message}  # Generic payload format
+            # Use appropriate payload field based on raw message mode
+            if use_raw_message:
+                payload = {"input": message, "question": message, "query": message}  # Raw user input fields
+            else:
+                payload = {"message": message, "query": message}  # Enhanced message fields
             
             async with httpx.AsyncClient(timeout=httpx.Timeout(api_config.timeout)) as client:
                 response = await client.request(
@@ -456,7 +469,7 @@ async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_ma
         print(f"❌ AI Agent API调用异常: {str(e)}")
         return "AI Agent API调用失败，请检查配置"
 
-async def call_dify_api(api_config: APIConfig, message: str, conversation_id: str = "") -> tuple:
+async def call_dify_api(api_config: APIConfig, message: str, conversation_id: str = "", use_raw_message: bool = False) -> tuple:
     """
     Call Dify API with proper payload format and conversation continuity
     Returns: (response_content, conversation_id)
@@ -468,12 +481,20 @@ async def call_dify_api(api_config: APIConfig, message: str, conversation_id: st
         headers.setdefault("Content-Type", "application/json")
         
         # Dify API specific payload format with conversation continuity
+        # 🐛 Debug log for Dify message processing
+        if use_raw_message:
+            print(f"🔍 [DIFY RAW] Processing raw user message: {message[:100]}...")
+            user_field = "evaluation-user-raw"
+        else:
+            print(f"🔍 [DIFY ENHANCED] Processing enhanced message: {message[:100]}...")
+            user_field = "evaluation-user"
+            
         payload = {
             "inputs": {},
             "query": message,
             "response_mode": "streaming",
             "conversation_id": conversation_id,  # Use provided conversation_id for continuity
-            "user": "evaluation-user",
+            "user": user_field,
             "files": []
         }
         
@@ -584,7 +605,7 @@ async def call_dify_api(api_config: APIConfig, message: str, conversation_id: st
         print(f"❌ Dify API调用异常: {str(e)}")
         raise e
 
-async def call_coze_api_fallback(message: str, bot_id: str = None) -> str:
+async def call_coze_api_fallback(message: str, bot_id: str = None, use_raw_message: bool = False) -> str:
     """
     Updated Coze API fallback to match working curl request format exactly
     """
@@ -596,17 +617,25 @@ async def call_coze_api_fallback(message: str, bot_id: str = None) -> str:
         "Content-Type": "application/json"
     }
     
+    # 🐛 Debug log for Coze message processing
+    if use_raw_message:
+        print(f"🔍 [COZE RAW] Using exact user input: {message[:100]}...")
+        user_id_suffix = "-raw"
+    else:
+        print(f"🔍 [COZE ENHANCED] Using processed message: {message[:100]}...")
+        user_id_suffix = ""
+    
     # Match the exact format from working curl request
     payload = {
         "parameters": {},
         "bot_id": bot_id,
-        "user_id": "123",
+        "user_id": f"123{user_id_suffix}",
         "additional_messages": [
             {
                 "content_type": "text",
                 "type": "question",  # This was missing - critical field!
                 "role": "user",
-                "content": message
+                "content": message  # Use message exactly as provided
             }
         ],
         "auto_save_history": True,
@@ -634,12 +663,14 @@ async def call_coze_api_fallback(message: str, bot_id: str = None) -> str:
                         print("⚠️ Empty response body")
                         raise Exception("Empty streaming response")
                     
-                    # Parse SSE format
+                    # Parse SSE format - Enhanced to handle multiple content types
                     lines = response_text.strip().split('\n')
                     collected_content = ""
                     main_answer = ""
+                    assistant_messages = []
                     current_event = None
                     
+                    # Parse SSE format with minimal logging for production
                     for line in lines:
                         line = line.strip()
                         if not line:
@@ -660,6 +691,10 @@ async def call_coze_api_fallback(message: str, bot_id: str = None) -> str:
                                 # Parse the JSON data
                                 data_json = json.loads(data_content)
                                 
+                                # Skip system messages early
+                                if data_json.get("msg_type") in ["time_capsule_recall", "conversation_summary", "system_message"]:
+                                    continue
+                                
                                 # Extract content based on event type
                                 if current_event == "conversation.message.delta":
                                     # This is streaming content chunk
@@ -668,27 +703,71 @@ async def call_coze_api_fallback(message: str, bot_id: str = None) -> str:
                                         collected_content += content_chunk
                                         
                                 elif current_event == "conversation.message.completed":
-                                    # This is a completed message - prefer this over delta chunks
-                                    if "content" in data_json and data_json.get("role") == "assistant":
+                                    # This is a completed message
+                                    if "content" in data_json:
                                         message_content = data_json["content"]
-                                        if message_content and len(message_content) > 50:  # Substantial content
-                                            # Prefer longer, more substantial responses
+                                        role = data_json.get("role", "unknown")
+                                        msg_type = data_json.get("type", "text")
+                                        
+                                        # Collect assistant messages (both text and tool outputs)
+                                        if role == "assistant" and message_content:
+                                            assistant_messages.append({
+                                                "content": message_content,
+                                                "type": msg_type,
+                                                "length": len(message_content)
+                                            })
+                                        
+                                        # Set main answer if this is substantial content
+                                        if message_content and len(message_content) > 20:
                                             if not main_answer or len(message_content) > len(main_answer):
                                                 main_answer = message_content
-                                                
-                            except json.JSONDecodeError:
+                                
+                                elif current_event == "conversation.chat.completed":
+                                    # Chat completion event - might have final answer
+                                    if "last_message" in data_json and data_json["last_message"].get("content"):
+                                        final_content = data_json["last_message"]["content"]
+                                        if len(final_content) > 20:
+                                            main_answer = final_content
+                                
+                                # Also check for direct content fields regardless of event
+                                elif "content" in data_json and not data_json.get("msg_type"):
+                                    content = data_json["content"]
+                                    if content and len(content) > 20 and not any(keyword in content for keyword in [
+                                        '用户编写的信息', '用户画像信息', '用户记忆点信息'
+                                    ]):
+                                        if not main_answer or len(content) > len(main_answer):
+                                            main_answer = content
+                                
+                            except json.JSONDecodeError as e:
                                 continue
                     
-                    # Return the best available content
-                    if main_answer:
-                        print(f"✅ Found main answer ({len(main_answer)} chars): {main_answer[:200]}...")
+                    # Priority order for response content
+                    # 1. Main answer (from completed messages)
+                    if main_answer and not any(keyword in main_answer for keyword in [
+                        '用户编写的信息', '用户画像信息', '用户记忆点信息', 'wraped_text', 'origin_search_results'
+                    ]):
+                        print(f"✅ Found main answer ({len(main_answer)} chars)")
                         return main_answer.strip()
-                    elif collected_content:
-                        print(f"✅ Using collected streaming content ({len(collected_content)} chars): {collected_content[:200]}...")
+                    
+                    # 2. Look for non-system assistant messages
+                    for msg in assistant_messages:
+                        content = msg["content"]
+                        if not any(keyword in content for keyword in [
+                            '用户编写的信息', '用户画像信息', '用户记忆点信息', 'wraped_text', 'origin_search_results'
+                        ]):
+                            print(f"✅ Using assistant message ({len(content)} chars)")
+                            return content.strip()
+                    
+                    # 3. Collected streaming content (delta)
+                    if collected_content and not any(keyword in collected_content for keyword in [
+                        '用户编写的信息', '用户画像信息', '用户记忆点信息', 'wraped_text', 'origin_search_results'
+                    ]):
+                        print(f"✅ Using streaming content ({len(collected_content)} chars)")
                         return collected_content.strip()
-                    else:
-                        print("❌ No content found in streaming response")
-                        raise Exception("No content in streaming response")
+                    
+                    # 4. If all content was system messages, return empty
+                    print("❌ No conversational content found (system messages only)")
+                    return ""  # Return empty to trigger proper handling
                 
                 else:
                     # Handle regular JSON response
@@ -1221,7 +1300,8 @@ async def evaluate_agent_dynamic(
     agent_api_config: str = Form(...),
     requirement_file: UploadFile = File(None),
     requirement_text: str = Form(None),
-    extracted_persona: str = Form(None)  # JSON string of extracted persona
+    extracted_persona: str = Form(None),  # JSON string of extracted persona
+    use_raw_messages: bool = Form(False)  # Use raw user messages without persona enhancement
 ):
     """
     New dynamic evaluation endpoint implementing conversational workflow:
@@ -1230,10 +1310,52 @@ async def evaluate_agent_dynamic(
     3. Conduct 2-3 rounds per scenario based on AI responses
     4. Generate comprehensive final report
     """
+    # Add timeout protection for the entire evaluation (increased to 8 minutes)
+    evaluation_timeout = 480  # 8 minutes total timeout
+    
+    try:
+        # Wrap the entire evaluation in a timeout
+        evaluation_result = await asyncio.wait_for(
+            _perform_dynamic_evaluation_internal(
+                agent_api_config, requirement_file, requirement_text, extracted_persona, use_raw_messages
+            ),
+            timeout=evaluation_timeout
+        )
+        return evaluation_result
+        
+    except asyncio.TimeoutError:
+        logger.error(f"⏰ Dynamic evaluation timed out after {evaluation_timeout} seconds")
+        raise HTTPException(
+            status_code=408, 
+            detail=f"评估超时：评估过程超过{evaluation_timeout//60}分钟限制。建议：1) 检查网络连接，2) 简化需求文档内容，3) 确认AI Agent响应速度正常。"
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        # Catch any other unexpected exceptions
+        logger.error(f"❌ Unexpected error in dynamic evaluation: {str(e)}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"动态评估过程出现意外错误: {str(e)}. 请检查服务器日志获取详细信息。"
+        )
+
+async def _perform_dynamic_evaluation_internal(
+    agent_api_config: str,
+    requirement_file: UploadFile,
+    requirement_text: str,
+    extracted_persona: str,
+    use_raw_messages: bool = False
+) -> Dict:
+    """
+    Internal function to perform dynamic evaluation with proper error handling
+    """
     try:
         logger.info("🚀 Starting dynamic evaluation...")
         print("🚀============================================================🚀")
         print("   AI Agent 动态对话评估平台 v4.0")
+        print(f"🔍 消息处理模式: {'原始消息模式 (RAW)' if use_raw_messages else '增强消息模式 (ENHANCED)'}")
         print("🚀============================================================🚀")
         
         # Parse API configuration
@@ -1334,7 +1456,7 @@ async def evaluate_agent_dynamic(
             logger.info("🎯 Starting dynamic conversation evaluation...")
             print("🎯 开始动态多轮对话评估...")
             evaluation_results = await conduct_dynamic_multi_scenario_evaluation(
-                api_config, user_persona_info, requirement_context
+                api_config, user_persona_info, requirement_context, use_raw_messages
             )
             
             if not evaluation_results:
@@ -1977,12 +2099,21 @@ async def conduct_dynamic_conversation(api_config: APIConfig, scenario_info: Dic
     """Redirect to true dynamic conversation implementation"""
     return await conduct_true_dynamic_conversation(api_config, scenario_info, user_persona_info)
 
-async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info: Dict, user_persona_info: Dict) -> List[Dict]:
+async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info: Dict, user_persona_info: Dict, use_raw_messages: bool = False) -> List[Dict]:
     """
-    TRUE dynamic conversation: DeepSeek generates one message at a time based on AI's actual responses
-    No pre-generated scenarios - pure turn-by-turn interaction with conversation continuity
+    TRUE dynamic conversation: Correct flow implementation
+    
+    Flow: 
+    1. DeepSeek generates user message based on persona → 
+    2. Send RAW message to Coze (no enhancement) → 
+    3. Extract Coze's actual response → 
+    4. Pass Coze response to DeepSeek for next message generation
+    
+    Args:
+        use_raw_messages: Legacy parameter (always uses raw messages now)
     """
     print(f"🗣️ 开始真正动态对话: {scenario_info.get('title', '未命名场景')}")
+    print("🔄 正确流程: DeepSeek(基于画像生成消息) → 原始消息 → Coze → 响应 → DeepSeek(分析响应生成下轮)")
     
     conversation_history = []
     persona = user_persona_info.get('user_persona', {})
@@ -1993,54 +2124,117 @@ async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info
     conversation_manager.start_new_conversation()
     
     # Step 1: Generate ONLY the initial message based on persona and scenario
-    print("🎯 DeepSeek生成初始消息...")
-    initial_message = await generate_single_initial_message(scenario_info, user_persona_info)
-    if not initial_message:
-        raise Exception("Failed to generate initial message")
+    try:
+        initial_message = await generate_single_initial_message(scenario_info, user_persona_info)
+        if not initial_message:
+            raise Exception("Failed to generate initial message")
+    except Exception as e:
+        print(f"❌ 初始消息生成失败: {str(e)}")
+        raise Exception(f"Dynamic conversation initialization failed: {str(e)}")
     
     current_user_message = initial_message
+    failed_turns = 0  # Track failed turns
     
-    # Step 2: Conduct true turn-by-turn conversation (reduced to max 3 turns)
-    for turn_num in range(1, 4):  # Changed from range(1, 6) to range(1, 4)
-        print(f"💬 第 {turn_num} 轮 - 用户消息: {current_user_message[:50]}...")
-        
-        # Add persona context for better AI understanding
-        enhanced_message = f"[作为{persona.get('role', '用户')}，{persona.get('communication_style', '专业沟通')}] {current_user_message}"
-        
-        # Get AI response with strict timeout and conversation continuity
-        ai_response = await call_coze_with_strict_timeout(api_config, enhanced_message, conversation_manager)
-        if not ai_response:
-            print(f"❌ 第 {turn_num} 轮AI无响应，终止对话")
-            break
-        
-        # Clean the AI response to extract meaningful content
-        ai_response = clean_ai_response(ai_response)
+    # Step 2: Conduct true turn-by-turn conversation (optimized to 2-3 turns max)
+    for turn_num in range(1, 4):  # Maximum 3 turns
+        try:
+            # 🐛 Debug log for message processing - ALWAYS use raw messages in dynamic conversation
+            print(f"🔍 [TURN {turn_num}] DeepSeek生成的原始用户消息: {current_user_message}")
             
-        # Record this turn
-        conversation_history.append({
-            "turn": turn_num,
-            "user_message": current_user_message,
-            "enhanced_message": enhanced_message,
-            "ai_response": ai_response,
-            "response_length": len(ai_response),
-            "conversation_id": conversation_manager.get_conversation_id(),
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        # Generate next message based on AI's actual response
-        if turn_num < 3:  # Don't generate after last turn (changed from 5 to 3)
-            print(f"🤖 DeepSeek分析AI回复，生成第{turn_num + 1}轮消息...")
-            next_message = await generate_next_message_based_on_response(
-                scenario_info, user_persona_info, conversation_history, ai_response
-            )
+            # ALWAYS send raw user message to Coze (no persona enhancement in dynamic mode)
+            # This is the correct flow: DeepSeek(persona) → raw message → Coze → response → DeepSeek(analyze)
+            message_to_send = current_user_message
+            print(f"🔍 [RAW MESSAGE] 发送原始消息到Coze: {message_to_send}")
             
-            if not next_message or next_message.upper() in ["END", "FINISH", "DONE"]:
-                print(f"🔚 对话自然结束于第 {turn_num} 轮")
+            # Get AI response with timeout and conversation continuity
+            ai_response = await call_coze_with_strict_timeout(api_config, message_to_send, conversation_manager, True)
+            
+            if not ai_response:
+                failed_turns += 1
+                if failed_turns >= 2:  # Stop if too many failed turns
+                    break
+                continue
+            
+            # Clean the AI response to extract meaningful content
+            cleaned_response = clean_ai_response(ai_response)
+            
+            # If cleaned response is empty (system message), try to generate a fallback response
+            if not cleaned_response:
+                try:
+                    fallback_prompt = f"""
+作为一个专业的{user_persona_info.get('user_persona', {}).get('role', '助手')}，请对以下问题给出简短但有用的回复：
+
+用户问题：{current_user_message}
+回复要求：
+1. 直接回答问题，不要说"我不知道"
+2. 保持专业但友好的语调
+3. 如果需要更多信息，可以简单询问
+4. 回复控制在50字以内
+
+请直接给出回复：
+"""
+                    
+                    fallback_response = await call_deepseek_api_enhanced(fallback_prompt, temperature=0.3, max_tokens=100)
+                    if fallback_response and len(fallback_response.strip()) > 5:
+                        cleaned_response = fallback_response.strip()
+                        failed_turns = 0  # Reset since we got a response
+                    else:
+                        failed_turns += 1
+                        if failed_turns >= 2:
+                            break
+                        continue
+                except Exception as e:
+                    failed_turns += 1
+                    if failed_turns >= 2:
+                        break
+                    continue
+            
+            # Reset failed turn counter on successful turn
+            failed_turns = 0
+            
+            # Record this turn
+            conversation_history.append({
+                "turn": turn_num,
+                "user_message": current_user_message,  # Raw message generated by DeepSeek
+                "message_sent_to_ai": message_to_send,  # Same as user_message (always raw)
+                "ai_response": cleaned_response,        # Actual Coze response
+                "response_length": len(cleaned_response),
+                "conversation_id": conversation_manager.get_conversation_id(),
+                "flow_type": "deepseek_to_raw_to_coze",  # Indicate the correct flow
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            print(f"✅ 第 {turn_num} 轮对话完成")
+            
+            # Generate next message based on AI's actual response (only if not the last turn)
+            if turn_num < 3:  # Don't generate after last turn
+                try:
+                    next_message = await generate_next_message_based_on_response(
+                        scenario_info, user_persona_info, conversation_history, cleaned_response
+                    )
+                    
+                    if not next_message or next_message.upper() in ["END", "FINISH", "DONE"]:
+                        print(f"🔚 对话自然结束于第 {turn_num} 轮")
+                        break
+                        
+                    current_user_message = next_message
+                    
+                except Exception as e:
+                    print(f"❌ 第{turn_num + 1}轮消息生成失败: {str(e)}")
+                    break  # End conversation if next message generation fails
+            
+        except Exception as e:
+            print(f"❌ 第 {turn_num} 轮对话异常: {str(e)}")
+            failed_turns += 1
+            if failed_turns >= 2:
                 break
-                
-            current_user_message = next_message
-        
-    print(f"📊 动态对话完成，共 {len(conversation_history)} 轮")
+            continue
+    
+    if not conversation_history:
+        raise Exception("Dynamic conversation completely failed - no successful turns")
+    
+    print(f"📊 真实动态对话完成，共 {len(conversation_history)} 轮")
+    print(f"✅ 实现流程: DeepSeek(画像生成) → 原始消息 → Coze → 实际回复 → DeepSeek(分析回复)")
     return conversation_history
 
 # DeepSeek Configuration
@@ -2313,13 +2507,13 @@ def generate_docx_report(eval_results: Dict, include_transcript: bool = False) -
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
 
-async def call_coze_with_strict_timeout(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None) -> str:
+async def call_coze_with_strict_timeout(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None, use_raw_message: bool = False) -> str:
     """
     Call AI Agent API with strict timeout for dynamic conversations and proper logging
     """
     try:
         # Use the existing AI agent API call with strict timeout and conversation continuity
-        response = await call_ai_agent_api(api_config, message, conversation_manager)
+        response = await call_ai_agent_api(api_config, message, conversation_manager, use_raw_message)
         
         # Determine API type for proper logging
         if "/v1/chat-messages" in api_config.url or "dify" in api_config.url.lower():
@@ -2426,6 +2620,7 @@ AI刚才回复: {coze_response[:200]}
 直接输出下一句话，不要解释：
 """
         
+        print(f"🤖 DeepSeek分析Coze回复内容: {coze_response[:50]}...")
         response = await call_deepseek_api_enhanced(generation_prompt, temperature=0.7, max_tokens=150)
         
         # Clean the response
@@ -2434,12 +2629,14 @@ AI刚才回复: {coze_response[:200]}
         if message and len(message) > 2:
             # Check if it's an end signal
             if message.upper() in ["END", "FINISH", "DONE", "结束", "完成"]:
+                print("🔚 DeepSeek判断对话应该结束")
                 return "END"
             
-            print(f"✅ 生成下轮消息: {message}")
+            print(f"✅ DeepSeek基于Coze回复生成下轮消息: {message}")
             return message
         else:
             # If generation fails, end the conversation
+            print("❌ DeepSeek生成下轮消息失败，结束对话")
             return "END"
             
     except Exception as e:
@@ -2458,10 +2655,12 @@ async def evaluate_conversation_with_deepseek(
     try:
         print("🧠 开始DeepSeek智能评估...")
         
-        # Build conversation context
-        conversation_text = ""
+        # Build conversation context - ensure it uses the complete actual conversation
+        conversation_text = "完整对话记录:\n"
         for turn in conversation_history:
-            conversation_text += f"用户: {turn['user_message']}\nAI: {turn['ai_response']}\n\n"
+            conversation_text += f"第{turn['turn']}轮:\n"
+            conversation_text += f"用户: {turn['user_message']}\n"
+            conversation_text += f"AI回答: {turn['ai_response']}\n\n"
         
         # Build evaluation context
         context_section = f"""
@@ -2480,7 +2679,7 @@ async def evaluate_conversation_with_deepseek(
 """
         
         if requirement_context:
-            context_section += f"\n需求文档上下文:\n{requirement_context[:1000]}"
+            context_section += f"\n需求文档上下文:\n{requirement_context[:800]}"
         
         # Enhanced evaluation with detailed explanations
         evaluation_scores = {}
@@ -2496,12 +2695,11 @@ async def evaluate_conversation_with_deepseek(
         if requirement_context:
             dimensions["goal_alignment"] = "目标对齐度"
         
-        # Evaluate each dimension with enhanced prompts
+        # Evaluate each dimension with optimized prompts (shorter but focused)
         for dimension, dimension_name in dimensions.items():
             eval_prompt = f"""
 {context_section}
 
-对话记录:
 {conversation_text}
 
 请评估AI在"{dimension_name}"方面的表现。
@@ -2514,29 +2712,19 @@ async def evaluate_conversation_with_deepseek(
 50-59分: 不及格表现，有重要缺陷
 1-49分: 差劲表现，存在明显问题
 
-请严格按照以下格式输出，确保详细和具体：
+请按以下格式简洁输出：
 
 评分：XX分
 
 详细分析：
-[请提供详细的分析说明，必须包含以下要点：
-1. 具体表现描述（至少3-4句）
-2. 突出的优势（如果有的话）
-3. 明显的不足或问题
-4. 与该维度标准的对比分析]
-
-具体引用：
-[必须引用具体的对话内容，格式为："第X轮对话中，用户问'...'，AI答'...'，体现了..."，至少引用2处对话]
+[分析AI的具体表现，指出优势和不足]
 
 改进建议：
-[针对该维度的3-5条具体改进措施建议，每条建议要具体可执行]
-
-综合评价：
-[该维度的总体评价，包括是否达到行业标准]
+[2-3条具体改进建议]
 """
             
             try:
-                response = await call_deepseek_api_enhanced(eval_prompt, temperature=0.2, max_tokens=800)
+                response = await call_deepseek_api_enhanced(eval_prompt, temperature=0.2, max_tokens=500)
                 
                 # Extract score (now on 100-point scale)
                 score = extract_score_from_response(response)
@@ -2578,6 +2766,7 @@ async def evaluate_conversation_with_deepseek(
         # Calculate overall score (now average of 100-point scores)
         scenario_score = sum(evaluation_scores.values()) / len(evaluation_scores) if evaluation_scores else 60.0
         
+        print(f"✅ 评估完成，场景得分: {scenario_score:.1f}/100")
         return evaluation_scores, detailed_explanations, scenario_score
         
     except Exception as e:
@@ -3071,7 +3260,8 @@ def extract_business_domain_from_content(content: str) -> str:
 async def conduct_dynamic_multi_scenario_evaluation(
     api_config: APIConfig,
     user_persona_info: Dict,
-    requirement_context: str
+    requirement_context: str,
+    use_raw_messages: bool = False
 ) -> List[Dict]:
     """
     Conduct dynamic multi-scenario evaluation based on extracted user persona
@@ -3105,7 +3295,7 @@ async def conduct_dynamic_multi_scenario_evaluation(
             try:
                 # Conduct true dynamic conversation for this scenario
                 conversation_history = await conduct_true_dynamic_conversation(
-                    api_config, scenario_info, user_persona_info
+                    api_config, scenario_info, user_persona_info, use_raw_messages
                 )
                 
                 if not conversation_history:
@@ -3197,6 +3387,53 @@ async def generate_dynamic_scenarios_from_persona(user_persona_info: Dict) -> Li
     except Exception as e:
         print(f"❌ 动态场景生成失败: {str(e)}")
         return []
+
+@app.post("/api/test-with-raw-coze-conversation")
+async def test_with_raw_coze_conversation(
+    agent_api_config: str = Form(...),
+    coze_conversation_json: str = Form(...),
+    use_raw_message: bool = Form(True)
+):
+    """
+    Test AI Agent with raw Coze conversation JSON - extracts user message and sends it directly
+    """
+    try:
+        print("🧪 开始原始Coze对话测试...")
+        
+        # Parse API configuration
+        api_config_dict = json.loads(agent_api_config)
+        api_config = APIConfig(**api_config_dict)
+        
+        # Parse Coze conversation JSON
+        coze_data = json.loads(coze_conversation_json)
+        
+        # Extract raw user message
+        raw_user_message = extract_user_message_from_coze_json(coze_data)
+        
+        if not raw_user_message:
+            raise HTTPException(status_code=400, detail="无法从Coze对话JSON中提取用户消息")
+        
+        print(f"✅ 提取到原始用户消息: {raw_user_message}")
+        
+        # Call AI Agent with raw message
+        ai_response = await call_ai_agent_api(api_config, raw_user_message, use_raw_message=use_raw_message)
+        
+        return {
+            "status": "success",
+            "raw_user_message": raw_user_message,
+            "ai_response": ai_response,
+            "use_raw_message": use_raw_message,
+            "message_processing_mode": "RAW" if use_raw_message else "ENHANCED",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"JSON解析失败: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Raw Coze conversation test failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"测试失败: {str(e)}")
 
 @app.post("/api/extract-user-persona")
 async def extract_user_persona(
@@ -3442,69 +3679,221 @@ async def save_download_record(session_id: str, download_format: str, include_tr
     finally:
         connection.close()
 
-def clean_ai_response(response: str) -> str:
+def extract_user_message_from_coze_json(coze_conversation_json: Dict) -> str:
     """
-    Clean AI response to extract meaningful content from JSON responses
+    Extract raw user message from Coze conversation JSON structure
+    
+    Expected Coze JSON structure:
+    {
+        "additional_messages": [
+            {
+                "content_type": "text",
+                "type": "question",
+                "role": "user", 
+                "content": "SBS卷材搭接处热熔质量检查情况？节点部位附加层要做闭水试验"
+            }
+        ]
+    }
     """
     try:
-        # If response looks like JSON, try to extract the actual answer
-        if response.strip().startswith('{') and '"tool_output_content"' in response:
-            try:
-                # Parse JSON and extract tool_output_content
-                response_json = json.loads(response)
-                if "tool_output_content" in response_json:
-                    content = response_json["tool_output_content"]
-                    
-                    # Look for "答案：" pattern and extract content after it
-                    if "答案：" in content:
-                        answer_part = content.split("答案：", 1)[1]
-                        # Clean up common suffixes
-                        answer_part = answer_part.replace("\\n参考依据：", "").replace("\\n依据来源：", "")
-                        return answer_part.strip()
-                    else:
-                        return content.strip()
-            except json.JSONDecodeError:
-                pass
+        # 🐛 Debug log for Coze JSON parsing
+        print(f"🔍 [COZE JSON] Extracting user message from: {json.dumps(coze_conversation_json, ensure_ascii=False)[:200]}...")
         
-        # Check for msg_type stream_plugin_finish pattern
+        # Try to extract from additional_messages (most common)
+        if "additional_messages" in coze_conversation_json:
+            additional_messages = coze_conversation_json["additional_messages"]
+            if isinstance(additional_messages, list) and len(additional_messages) > 0:
+                first_message = additional_messages[0]
+                if isinstance(first_message, dict) and "content" in first_message:
+                    raw_content = first_message["content"].strip()
+                    print(f"🔍 [EXTRACTED] Raw user message: {raw_content}")
+                    return raw_content
+        
+        # Try to extract from messages array
+        if "messages" in coze_conversation_json:
+            messages = coze_conversation_json["messages"]
+            if isinstance(messages, list):
+                for message in messages:
+                    if (isinstance(message, dict) and 
+                        message.get("role") == "user" and 
+                        "content" in message):
+                        raw_content = message["content"].strip()
+                        print(f"🔍 [EXTRACTED] Raw user message from messages: {raw_content}")
+                        return raw_content
+        
+        # Try direct content field
+        if "content" in coze_conversation_json:
+            raw_content = coze_conversation_json["content"].strip()
+            print(f"🔍 [EXTRACTED] Raw user message from content: {raw_content}")
+            return raw_content
+        
+        # Fallback - look for any text content
+        for key, value in coze_conversation_json.items():
+            if isinstance(value, str) and len(value.strip()) > 5:
+                print(f"🔍 [FALLBACK] Using field '{key}': {value.strip()}")
+                return value.strip()
+        
+        print("❌ [EXTRACTION FAILED] No user message found in Coze JSON")
+        return ""
+        
+    except Exception as e:
+        print(f"❌ [EXTRACTION ERROR] Failed to extract user message: {str(e)}")
+        return ""
+
+def clean_ai_response(response: str) -> str:
+    """
+    Clean AI response to extract meaningful content and filter out system messages
+    """
+    try:
+        original_response = response
+        print(f"🧹 Cleaning AI response: {response[:100]}...")
+        
+        # Check for pure system messages (skip only if entire response is system content)
+        system_only_indicators = [
+            '"msg_type":"time_capsule_recall"',
+            '"msg_type":"conversation_summary"', 
+            '"msg_type":"system_message"'
+        ]
+        
+        # If the response is ONLY a system message, skip it
+        if (response.strip().startswith('{"msg_type"') and 
+            any(indicator in response for indicator in system_only_indicators) and
+            len(response.strip()) < 2000):  # Short responses that are likely pure system messages
+            print("🚫 Detected pure system message, skipping this response")
+            return ""  # Return empty to trigger conversation end
+        
+        # If response looks like JSON, try to extract the actual answer
+        if response.strip().startswith('{'):
+            try:
+                # Handle multiple JSON objects in response (streaming format)
+                json_objects = []
+                lines = response.strip().split('\n')
+                
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('data: '):
+                        line = line[6:]  # Remove 'data: ' prefix
+                    
+                    if line and line.startswith('{') and line.endswith('}'):
+                        try:
+                            json_obj = json.loads(line)
+                            json_objects.append(json_obj)
+                        except json.JSONDecodeError:
+                            continue
+                
+                # If no JSON objects found, try parsing the entire response
+                if not json_objects:
+                    try:
+                        json_objects = [json.loads(response)]
+                    except json.JSONDecodeError:
+                        pass
+                
+                # Extract meaningful content from JSON objects
+                meaningful_content = ""
+                
+                for json_obj in json_objects:
+                    # Skip system messages
+                    if json_obj.get('msg_type') in ['time_capsule_recall', 'conversation_summary', 'system_message']:
+                        continue
+                    
+                    # Extract content from various possible fields
+                    content_fields = [
+                        'tool_output_content',
+                        'content', 
+                        'answer',
+                        'message',
+                        'text',
+                        'response'
+                    ]
+                    
+                    for field in content_fields:
+                        if field in json_obj and json_obj[field]:
+                            content = str(json_obj[field])
+                            
+                            # Clean up escape characters
+                            content = content.replace('\\n', '\n').replace('\\"', '"').replace('\\t', '\t')
+                            
+                            # Filter out evaluation-related content
+                            evaluation_keywords = [
+                                '用户编写的信息',
+                                '用户画像信息', 
+                                '用户记忆点信息',
+                                '避免使用隐私和敏感信息',
+                                '以下信息来源于用户与你对话',
+                                'wraped_text',
+                                'origin_search_results'
+                            ]
+                            
+                            if not any(keyword in content for keyword in evaluation_keywords):
+                                # Look for "答案：" pattern and extract content after it
+                                if "答案：" in content:
+                                    answer_part = content.split("答案：", 1)[1]
+                                    answer_part = answer_part.replace("参考依据：", "").replace("依据来源：", "")
+                                    meaningful_content = answer_part.strip()
+                                    break
+                                elif len(content.strip()) > 10:  # Substantial content
+                                    meaningful_content = content.strip()
+                                    break
+                
+                if meaningful_content:
+                    print(f"✅ Extracted from JSON: {meaningful_content[:80]}...")
+                    return meaningful_content
+                    
+            except Exception as e:
+                print(f"⚠️ JSON parsing failed: {str(e)}")
+        
+        # Handle streaming format patterns
         if '"msg_type":"stream_plugin_finish"' in response:
             try:
-                # Extract from the data field
                 import re
                 pattern = r'"tool_output_content":"([^"]+)"'
                 match = re.search(pattern, response)
                 if match:
                     content = match.group(1)
-                    # Unescape common characters
                     content = content.replace('\\n', '\n').replace('\\"', '"')
                     
-                    # Look for "答案：" pattern
-                    if "答案：" in content:
-                        answer_part = content.split("答案：", 1)[1]
-                        # Clean up common suffixes
-                        answer_part = answer_part.replace("\\n参考依据：", "").replace("\\n依据来源：", "")
-                        return answer_part.strip()
-                    else:
-                        return content.strip()
+                    # Filter out evaluation content
+                    if not any(keyword in content for keyword in [
+                        '用户编写的信息', '用户画像信息', '用户记忆点信息',
+                        'wraped_text', 'origin_search_results'
+                    ]):
+                        if "答案：" in content:
+                            answer_part = content.split("答案：", 1)[1]
+                            answer_part = answer_part.replace("参考依据：", "").replace("依据来源：", "")
+                            return answer_part.strip()
+                        else:
+                            return content.strip()
             except Exception:
                 pass
         
-        # Look for "答案：" pattern in regular text
-        if "答案：" in response:
+        # Handle plain text with "答案：" pattern
+        if "答案：" in response and not any(keyword in response for keyword in [
+            '用户编写的信息', '用户画像信息', '用户记忆点信息'
+        ]):
             answer_part = response.split("答案：", 1)[1]
-            # Clean up and return first substantial line
             lines = answer_part.split('\n')
             for line in lines:
                 line = line.strip()
                 if line and not line.startswith('参考依据：') and not line.startswith('依据来源：'):
                     return line
         
-        # Return cleaned response as-is
-        return response.strip()
+        # Final fallback - return original if it's clean text
+        cleaned = response.strip()
+        
+        # Final filter check for system content
+        if any(keyword in cleaned for keyword in [
+            '用户编写的信息', '用户画像信息', '用户记忆点信息',
+            'wraped_text', 'origin_search_results', 'msg_type'
+        ]):
+            print("🚫 Final filter caught system content, returning empty")
+            return ""
+        
+        print(f"✅ Cleaned response: {cleaned[:80]}...")
+        return cleaned
         
     except Exception as e:
-        print(f"⚠️ 响应清理失败: {str(e)}")
-        return response.strip()
+        print(f"❌ 响应清理异常: {str(e)}")
+        return original_response.strip() if len(original_response.strip()) < 500 else ""
 
 if __name__ == "__main__":
     port = find_available_port(config.DEFAULT_PORT)
