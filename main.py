@@ -454,14 +454,25 @@ async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_ma
                 if response.status_code == 200:
                     result = response.json()
                     # Try common response paths
+                    raw_response = ""
                     if "response" in result:
-                        return result["response"]
+                        raw_response = result["response"]
                     elif "answer" in result:
-                        return result["answer"]
+                        raw_response = result["answer"]
                     elif "message" in result:
-                        return result["message"]
+                        raw_response = result["message"]
                     else:
-                        return str(result)
+                        raw_response = str(result)
+                    
+                    # 🔧 UNIVERSAL FIX: Apply plugin extraction to generic API responses too
+                    if raw_response:
+                        cleaned_response = clean_ai_response(raw_response)
+                        if cleaned_response:
+                            print(f"🧹 通用API响应经过插件提取处理: {cleaned_response[:100]}...")
+                            return cleaned_response
+                        return raw_response
+                    else:
+                        return "Empty response from API"
                 else:
                     return f"API调用失败: {response.status_code}"
                     
@@ -556,6 +567,12 @@ async def call_dify_api(api_config: APIConfig, message: str, conversation_id: st
                     
                     if collected_content:
                         print(f"✅ Dify流式响应解析成功: {collected_content[:100]}...")
+                        # 🔧 UNIVERSAL FIX: Apply plugin extraction to Dify responses too
+                        cleaned_content = clean_ai_response(collected_content)
+                        if cleaned_content and cleaned_content != collected_content:
+                            print(f"🧹 Dify响应经过插件提取处理: {cleaned_content[:100]}...")
+                            collected_content = cleaned_content
+                        
                         if conversation_id_extracted and conversation_id_extracted != conversation_id:
                             print(f"🔗 提取到对话ID: {conversation_id_extracted[:20]}...")
                         return collected_content.strip(), conversation_id_extracted
@@ -589,6 +606,13 @@ async def call_dify_api(api_config: APIConfig, message: str, conversation_id: st
                     if "conversation_id" in result and result["conversation_id"]:
                         conversation_id_extracted = result["conversation_id"]
                     
+                    # 🔧 UNIVERSAL FIX: Apply plugin extraction to Dify JSON responses too
+                    if response_content:
+                        cleaned_content = clean_ai_response(response_content)
+                        if cleaned_content:
+                            response_content = cleaned_content
+                            print(f"🧹 Dify JSON响应经过插件提取处理: {response_content[:100]}...")
+                    
                     return response_content, conversation_id_extracted
             else:
                 error_text = response.text if hasattr(response, 'text') else 'Unknown error'
@@ -607,100 +631,101 @@ async def call_dify_api(api_config: APIConfig, message: str, conversation_id: st
 
 async def call_coze_api_fallback(message: str, bot_id: str = None, use_raw_message: bool = False) -> str:
     """
-    Updated Coze API fallback to match working curl request format exactly
+    Enhanced Coze API with proper plugin response extraction
     """
     if not bot_id:
         bot_id = config.DEFAULT_COZE_BOT_ID
-        
+    
+    url = f"{config.COZE_API_BASE}/v3/chat"
     headers = {
         "Authorization": f"Bearer {config.COZE_API_TOKEN}",
         "Content-Type": "application/json"
     }
     
-    # 🐛 Debug log for Coze message processing
-    if use_raw_message:
-        print(f"🔍 [COZE RAW] Using exact user input: {message[:100]}...")
-        user_id_suffix = "-raw"
-    else:
-        print(f"🔍 [COZE ENHANCED] Using processed message: {message[:100]}...")
-        user_id_suffix = ""
-    
-    # Match the exact format from working curl request
     payload = {
         "parameters": {},
         "bot_id": bot_id,
-        "user_id": f"123{user_id_suffix}",
+        "user_id": "123",
         "additional_messages": [
             {
                 "content_type": "text",
-                "type": "question",  # This was missing - critical field!
+                "type": "question",
                 "role": "user",
-                "content": message  # Use message exactly as provided
+                "content": message
             }
         ],
         "auto_save_history": True,
-        "stream": True  # Match curl request
+        "stream": True
     }
-    
+
+    print(f"🔍 [RAW MESSAGE] 发送原始消息到Coze: {message}")
+    print(f"🔍 [RAW MESSAGE MODE] Using exact user input: {message[:50]}...")
+
     try:
-        timeout = httpx.Timeout(config.COZE_TIMEOUT, connect=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            # Use CN endpoint as in curl
-            response = await client.post("https://api.coze.cn/v3/chat", headers=headers, json=payload)
-            
-            print(f"🔍 Coze API Response Status: {response.status_code}")
+        async with httpx.AsyncClient(timeout=config.COZE_TIMEOUT) as client:
+            response = await client.post(url, json=payload, headers=headers)
             
             if response.status_code == 200:
-                # Check if response is streaming (text/event-stream) or JSON
-                content_type = response.headers.get("content-type", "").lower()
+                content_type = response.headers.get("Content-Type", "")
+                response_text = response.text
                 
-                if "text/event-stream" in content_type or "stream" in content_type:
-                    # Handle streaming response - parse as SSE (Server-Sent Events)
-                    response_text = response.text
-                    print(f"🔍 Handling SSE streaming response ({len(response_text)} chars)")
-                    
-                    if not response_text.strip():
-                        print("⚠️ Empty response body")
-                        raise Exception("Empty streaming response")
-                    
-                    # Parse SSE format - Enhanced to handle multiple content types
+                print(f"🔍 Coze API Response Status: {response.status_code}")
+                print(f"🔍 Handling SSE streaming response ({len(response_text)} chars)")
+                
+                # Raw response length for debugging
+                # print(f"🔍 RAW RESPONSE (first 1000 chars): {response_text[:1000]}...") # Disabled for cleaner output
+
+                if "text/event-stream" in content_type or "stream" in response_text:
+                    # Parse SSE streaming response
                     lines = response_text.strip().split('\n')
-                    collected_content = ""
+                    current_event = None
                     main_answer = ""
                     assistant_messages = []
-                    current_event = None
+                    collected_content = ""
+                    plugin_responses = []  # 🔧 NEW: Collect plugin responses
                     
-                    # Parse SSE format with minimal logging for production
+                    # 🔍 PATTERN SEARCH: Look for tool output patterns in raw response
+                    import re
+                    tool_output_patterns = [
+                        r'"tool_output_content":"([^"]+)"',
+                        r'"tool_output_content":\s*"([^"]+)"',
+                        r'答案：([^"\\n]+)',
+                        r'"answer":"([^"]+)"',
+                        r'"response":"([^"]+)"',
+                        r'"result":"([^"]+)"'
+                    ]
+                    
+                    for pattern in tool_output_patterns:
+                        matches = re.findall(pattern, response_text, re.IGNORECASE | re.DOTALL)
+                        for match in matches:
+                            # Clean up escape characters
+                            cleaned_match = match.replace('\\n', '\n').replace('\\"', '"').replace('\\t', '\t')
+                            if len(cleaned_match.strip()) > 20:  # Substantial content
+                                plugin_responses.append(cleaned_match.strip())
+                    
                     for line in lines:
                         line = line.strip()
-                        if not line:
-                            continue
                         
-                        # Handle SSE format: event:xxx and data:xxx
                         if line.startswith("event:"):
-                            current_event = line[6:]  # Remove "event:" prefix
+                            current_event = line[6:].strip()
+                        elif line.startswith("data:") and len(line) > 5:
+                            data_content = line[5:].strip()
                             
-                        elif line.startswith("data:"):
-                            data_content = line[5:]  # Remove "data:" prefix
-                            
-                            # Handle end marker
-                            if data_content.strip() in ['"[DONE]"', "[DONE]"]:
-                                break
-                            
+                            if data_content in ["[DONE]", ""]:
+                                continue
+                                
                             try:
-                                # Parse the JSON data
                                 data_json = json.loads(data_content)
                                 
-                                # Skip system messages early
-                                if data_json.get("msg_type") in ["time_capsule_recall", "conversation_summary", "system_message"]:
-                                    continue
-                                
-                                # Extract content based on event type
                                 if current_event == "conversation.message.delta":
                                     # This is streaming content chunk
                                     if "content" in data_json:
                                         content_chunk = data_json["content"]
-                                        collected_content += content_chunk
+                                        # Don't collect plugin invocation chunks
+                                        if not (content_chunk.strip().startswith('{"name":"') or 
+                                                '"plugin_id":' in content_chunk or
+                                                '"arguments":' in content_chunk):
+                                            collected_content += content_chunk
                                         
                                 elif current_event == "conversation.message.completed":
                                     # This is a completed message
@@ -709,16 +734,71 @@ async def call_coze_api_fallback(message: str, bot_id: str = None, use_raw_messa
                                         role = data_json.get("role", "unknown")
                                         msg_type = data_json.get("type", "text")
                                         
-                                        # Collect assistant messages (both text and tool outputs)
+                                        # 🔧 NEW: Enhanced plugin response handling
                                         if role == "assistant" and message_content:
+                                            # Check if content is a plugin invocation JSON
+                                            if (message_content.strip().startswith('{"name":"') and 
+                                                '"arguments":' in message_content and
+                                                '"plugin_id":' in message_content):
+                                                print(f"🔧 Found plugin invocation: {message_content[:200]}...")
+                                                
+                                                # Try to extract tool output from plugin response
+                                                try:
+                                                    plugin_data = json.loads(message_content)
+                                                    
+                                                    # Look for tool output in various possible fields
+                                                    tool_output_fields = [
+                                                        'tool_output_content',
+                                                        'output',
+                                                        'result', 
+                                                        'content',
+                                                        'answer',
+                                                        'response',
+                                                        'text',
+                                                        'data'
+                                                    ]
+                                                    
+                                                    found_output = False
+                                                    
+                                                    # Check top-level fields
+                                                    for field in tool_output_fields:
+                                                        if field in plugin_data and plugin_data[field]:
+                                                            tool_output = str(plugin_data[field])
+                                                            if len(tool_output.strip()) > 10:  # Substantial content
+                                                                print(f"✅ Extracted plugin output from {field}: {tool_output[:100]}...")
+                                                                plugin_responses.append(tool_output)
+                                                                found_output = True
+                                                                break
+                                                    
+                                                    # Check nested arguments if not found yet
+                                                    if not found_output and 'arguments' in plugin_data and isinstance(plugin_data['arguments'], dict):
+                                                        args = plugin_data['arguments']
+                                                        for field in tool_output_fields:
+                                                            if field in args and args[field]:
+                                                                tool_output = str(args[field])
+                                                                if len(tool_output.strip()) > 10:
+                                                                    print(f"✅ Extracted plugin output from args.{field}: {tool_output[:100]}...")
+                                                                    plugin_responses.append(tool_output)
+                                                                    found_output = True
+                                                                    break
+                                                    
+                                                except json.JSONDecodeError as e:
+                                                    print(f"⚠️ Failed to parse plugin JSON: {e}")
+                                                
+                                                continue  # Skip adding to assistant_messages
+                                            
+                                            # Regular assistant message
                                             assistant_messages.append({
                                                 "content": message_content,
                                                 "type": msg_type,
                                                 "length": len(message_content)
                                             })
                                         
-                                        # Set main answer if this is substantial content
-                                        if message_content and len(message_content) > 20:
+                                        # Set main answer if this is substantial content and not plugin invocation
+                                        if (message_content and len(message_content) > 20 and 
+                                            not (message_content.strip().startswith('{"name":"') and 
+                                                 '"arguments":' in message_content and
+                                                 '"plugin_id":' in message_content)):
                                             if not main_answer or len(message_content) > len(main_answer):
                                                 main_answer = message_content
                                 
@@ -729,44 +809,109 @@ async def call_coze_api_fallback(message: str, bot_id: str = None, use_raw_messa
                                         if len(final_content) > 20:
                                             main_answer = final_content
                                 
+                                # 🔧 NEW: Check for tool output events
+                                elif current_event == "conversation.message.plugin.finish":
+                                    if "content" in data_json:
+                                        plugin_output = data_json["content"]
+                                        if len(plugin_output.strip()) > 10:
+                                            print(f"✅ Plugin finish event with output: {plugin_output[:100]}...")
+                                            plugin_responses.append(plugin_output)
+                                
+                                # 🔧 CRITICAL: Extract plugin content from stream_plugin_finish events
+                                if current_event == "conversation.message.completed" and "content" in data_json:
+                                    content = data_json["content"]
+                                    # Check if this is a stream_plugin_finish event with tool_output_content
+                                    if isinstance(content, str) and '"msg_type":"stream_plugin_finish"' in content:
+                                        try:
+                                            # Parse the JSON content to extract tool_output_content
+                                            inner_json = json.loads(content)
+                                            if inner_json.get("msg_type") == "stream_plugin_finish" and "data" in inner_json:
+                                                data_str = inner_json["data"]
+                                                if isinstance(data_str, str):
+                                                    data_content = json.loads(data_str)
+                                                    if "tool_output_content" in data_content:
+                                                        tool_output = data_content["tool_output_content"]
+                                                        if tool_output and len(tool_output.strip()) > 20:
+                                                            print(f"✅ Extracted plugin output: {tool_output[:200]}...")
+                                                            plugin_responses.append(tool_output)
+                                        except (json.JSONDecodeError, KeyError) as e:
+                                            print(f"⚠️ Failed to parse plugin content: {e}")
+                                
+                                # Minimal logging for debugging
+                                # if current_event in ["conversation.message.completed", "conversation.message.delta"] and "content" in data_json:
+                                #     content_preview = str(data_json["content"])[:100] if data_json["content"] else "empty"
+                                #     print(f"🔍 {current_event}: {content_preview}...")
+                                
+                                # Check for tool output in tool_response type messages
+                                if current_event == "conversation.message.completed" and data_json.get("type") == "tool_response":
+                                    if "content" in data_json:
+                                        tool_content = data_json["content"]
+                                        if tool_content and len(str(tool_content).strip()) > 10:
+                                            print(f"✅ Found tool response: {str(tool_content)[:200]}...")
+                                            # Skip the generic "directly streaming reply" message
+                                            if "directly streaming reply" not in str(tool_content):
+                                                plugin_responses.append(str(tool_content))
+                                
                                 # Also check for direct content fields regardless of event
                                 elif "content" in data_json and not data_json.get("msg_type"):
                                     content = data_json["content"]
-                                    if content and len(content) > 20 and not any(keyword in content for keyword in [
-                                        '用户编写的信息', '用户画像信息', '用户记忆点信息'
-                                    ]):
+                                    if (content and len(content) > 20 and 
+                                        not any(keyword in content for keyword in [
+                                            '用户编写的信息', '用户画像信息', '用户记忆点信息'
+                                        ]) and
+                                        not (content.strip().startswith('{"name":"') and 
+                                             '"arguments":' in content and
+                                             '"plugin_id":' in content)):
                                         if not main_answer or len(content) > len(main_answer):
                                             main_answer = content
                                 
                             except json.JSONDecodeError as e:
                                 continue
                     
-                    # Priority order for response content
-                    # 1. Main answer (from completed messages)
+                    # 🔧 ENHANCED: Priority order for response content 
+                    print(f"🔍 Response content summary: {len(plugin_responses)} plugins, {len(assistant_messages)} messages, main_answer: {len(main_answer) if main_answer else 0} chars")
+                    
+                    # 1. Plugin responses (highest priority for technical queries)
+                    if plugin_responses:
+                        # Use the longest/most substantial plugin response
+                        best_plugin_response = max(plugin_responses, key=len)
+                        if len(best_plugin_response) > 20:
+                            print(f"✅ Using plugin response ({len(best_plugin_response)} chars)")
+                            return clean_ai_response(best_plugin_response)
+                    
+                    # 2. Main answer (from completed messages)
                     if main_answer and not any(keyword in main_answer for keyword in [
                         '用户编写的信息', '用户画像信息', '用户记忆点信息', 'wraped_text', 'origin_search_results'
                     ]):
-                        print(f"✅ Found main answer ({len(main_answer)} chars)")
-                        return main_answer.strip()
+                        print(f"✅ Using main answer ({len(main_answer)} chars): {main_answer[:100]}...")
+                        return clean_ai_response(main_answer)
                     
-                    # 2. Look for non-system assistant messages
-                    for msg in assistant_messages:
+                    # 3. Look for non-system assistant messages
+                    for i, msg in enumerate(assistant_messages):
                         content = msg["content"]
-                        if not any(keyword in content for keyword in [
+                        if (not any(keyword in content for keyword in [
                             '用户编写的信息', '用户画像信息', '用户记忆点信息', 'wraped_text', 'origin_search_results'
-                        ]):
-                            print(f"✅ Using assistant message ({len(content)} chars)")
-                            return content.strip()
+                        ]) and
+                        not (content.strip().startswith('{"name":"') and 
+                             '"arguments":' in content and
+                             '"plugin_id":' in content)):
+                            print(f"✅ Using assistant message ({len(content)} chars): {content[:100]}...")
+                            return clean_ai_response(content)
                     
-                    # 3. Collected streaming content (delta)
-                    if collected_content and not any(keyword in collected_content for keyword in [
-                        '用户编写的信息', '用户画像信息', '用户记忆点信息', 'wraped_text', 'origin_search_results'
-                    ]):
-                        print(f"✅ Using streaming content ({len(collected_content)} chars)")
-                        return collected_content.strip()
+                    # 4. Collected streaming content (delta)
+                    if (collected_content and 
+                        not any(keyword in collected_content for keyword in [
+                            '用户编写的信息', '用户画像信息', '用户记忆点信息', 'wraped_text', 'origin_search_results'
+                        ]) and
+                        not (collected_content.strip().startswith('{"name":"') and 
+                             '"arguments":' in collected_content and
+                             '"plugin_id":' in collected_content)):
+                        print(f"✅ Using streaming content ({len(collected_content)} chars): {collected_content[:100]}...")
+                        return clean_ai_response(collected_content)
                     
-                    # 4. If all content was system messages, return empty
+                    # 5. If all content was system messages, return empty
                     print("❌ No conversational content found (system messages only)")
+                    print(f"🔍 COMPLETE RAW RESPONSE FOR DEBUGGING: {response_text}")
                     return ""  # Return empty to trigger proper handling
                 
                 else:
@@ -783,22 +928,22 @@ async def call_coze_api_fallback(message: str, bot_id: str = None, use_raw_messa
                             for msg in reversed(data["messages"]):
                                 if msg.get("role") == "assistant" and msg.get("content"):
                                     print(f"✅ Found assistant response: {msg['content'][:100]}...")
-                                    return msg["content"].strip()
+                                    return clean_ai_response(msg["content"])
                             
                             # Fallback to any message content
                             for msg in data["messages"]:
                                 if msg.get("content"):
                                     print(f"✅ Found fallback response: {msg['content'][:100]}...")
-                                    return msg["content"].strip()
+                                    return clean_ai_response(msg["content"])
                         
                         # Check for other possible response formats
                         if "answer" in data:
                             print(f"✅ Found answer field: {data['answer'][:100]}...")
-                            return data["answer"].strip()
+                            return clean_ai_response(data["answer"])
                         
                         if "content" in data:
                             print(f"✅ Found content field: {data['content'][:100]}...")
-                            return data["content"].strip()
+                            return clean_ai_response(data["content"])
                         
                         print(f"⚠️ No response content found in data: {list(data.keys())}")
                         raise Exception("No valid response content in Coze API result")
@@ -882,6 +1027,10 @@ async def call_coze_api_sdk(bot_id: str, message: str) -> str:
         response_content = ""
         token_count = 0
         
+        # Track plugin responses like in the HTTP fallback method
+        plugin_responses = []
+        collected_content = ""
+        
         # Create streaming chat
         for event in coze.chat.stream(
             bot_id=bot_id,
@@ -890,14 +1039,149 @@ async def call_coze_api_sdk(bot_id: str, message: str) -> str:
                 Message.build_user_question_text(message),
             ],
         ):
+            # Enhanced logging for debugging
+            print(f"[📡 EVENT] {event.event}")
+            
             if event.event == ChatEventType.CONVERSATION_MESSAGE_DELTA:
-                content = event.message.content
-                response_content += content
+                content = event.message.content or ""
+                print(f"[📦 DELTA CONTENT] {content[:100]}...")
                 
+                # 🔧 Enhanced plugin detection using existing patterns from HTTP fallback
+                # Check if content contains plugin JSON data
+                if ('"tool_output_content"' in content or 
+                    '"plugin_id"' in content or
+                    '"msg_type":"stream_plugin_finish"' in content):
+                    
+                    print(f"🔧 Detected plugin content in delta: {content[:150]}...")
+                    
+                    # Try to extract plugin tool output using same logic as HTTP fallback
+                    try:
+                        if '"tool_output_content"' in content:
+                            # Extract tool_output_content directly
+                            import re
+                            match = re.search(r'"tool_output_content":"([^"]+)"', content)
+                            if match:
+                                tool_output = match.group(1).replace('\\n', '\n').replace('\\"', '"')
+                                print(f"✅ Extracted tool_output_content: {tool_output[:100]}...")
+                                plugin_responses.append(tool_output)
+                                continue  # Skip adding to response_content to avoid duplication
+                        
+                        # Handle stream_plugin_finish format  
+                        if '"msg_type":"stream_plugin_finish"' in content:
+                            try:
+                                import json
+                                plugin_data = json.loads(content)
+                                data_content = plugin_data.get('data', {})
+                                if isinstance(data_content, str):
+                                    # Parse nested JSON in data field
+                                    try:
+                                        data_obj = json.loads(data_content)
+                                        tool_output = data_obj.get('tool_output_content', '')
+                                        if tool_output and len(tool_output.strip()) > 5:
+                                            print(f"✅ Extracted from stream_plugin_finish: {tool_output[:100]}...")
+                                            plugin_responses.append(tool_output)
+                                            continue
+                                    except:
+                                        pass
+                                elif isinstance(data_content, dict):
+                                    tool_output = data_content.get('tool_output_content', '')
+                                    if tool_output and len(tool_output.strip()) > 5:
+                                        print(f"✅ Extracted from nested JSON: {tool_output[:100]}...")
+                                        plugin_responses.append(tool_output)
+                                        continue
+                            except json.JSONDecodeError:
+                                print(f"⚠️ Failed to parse stream_plugin_finish JSON")
+                        
+                        # Try to parse as plugin invocation JSON
+                        if '"plugin_id"' in content:
+                            try:
+                                import json
+                                plugin_data = json.loads(content)
+                                
+                                # Look for tool output in various possible fields
+                                tool_output_fields = [
+                                    'tool_output_content', 'output', 'result', 
+                                    'content', 'answer', 'response'
+                                ]
+                                
+                                for field in tool_output_fields:
+                                    if field in plugin_data and plugin_data[field]:
+                                        tool_output = str(plugin_data[field])
+                                        if len(tool_output.strip()) > 10:
+                                            print(f"✅ Extracted plugin output from {field}: {tool_output[:100]}...")
+                                            plugin_responses.append(tool_output)
+                                            break
+                                
+                                # Also check in arguments field
+                                if 'arguments' in plugin_data and isinstance(plugin_data['arguments'], dict):
+                                    args = plugin_data['arguments']
+                                    for field in tool_output_fields:
+                                        if field in args and args[field]:
+                                            tool_output = str(args[field])
+                                            if len(tool_output.strip()) > 10:
+                                                print(f"✅ Extracted tool output from args.{field}: {tool_output[:100]}...")
+                                                plugin_responses.append(tool_output)
+                                                break
+                                continue  # Skip adding plugin JSON to response_content
+                            except json.JSONDecodeError:
+                                print(f"⚠️ Failed to parse plugin JSON")
+                    
+                    except Exception as e:
+                        print(f"⚠️ Error processing plugin content: {e}")
+                
+                # Only add to collected content if it's not plugin invocation JSON
+                if not ('"plugin_id"' in content and content.strip().startswith('{')):
+                    collected_content += content
+                    response_content += content
+                
+            # Handle direct plugin results (if SDK supports these attributes)
+            elif hasattr(event, 'plugin_result') and event.plugin_result:
+                plugin_content = str(event.plugin_result)
+                response_content += f"\n{plugin_content}"
+                plugin_responses.append(plugin_content)
+                print(f"[🔌 PLUGIN RESULT] {plugin_content[:100]}...")
+                
+            # Handle tool outputs (alternative event type for plugins)
+            elif hasattr(event, 'tool_output') and event.tool_output:
+                tool_content = str(event.tool_output)
+                response_content += f"\n{tool_content}"
+                plugin_responses.append(tool_content)
+                print(f"[🔧 TOOL OUTPUT] {tool_content[:100]}...")
+                
+            # Handle any other message content (fallback for other content types)
+            elif hasattr(event, 'message') and hasattr(event.message, 'content') and event.message.content:
+                if event.event != ChatEventType.CONVERSATION_MESSAGE_DELTA:  # Avoid duplicates
+                    content = event.message.content
+                    response_content += content
+                    print(f"[📄 OTHER MESSAGE] {content[:100]}...")
+                    
             elif event.event == ChatEventType.CONVERSATION_CHAT_COMPLETED:
                 if hasattr(event.chat, 'usage') and event.chat.usage:
                     token_count = event.chat.usage.token_count
+                print(f"[✅ CHAT COMPLETED] Token count: {token_count}")
                 break
+                
+            # Log any unhandled events for debugging
+            else:
+                print(f"[❓ UNHANDLED EVENT] {event.event} - {type(event)}")
+                # Try to extract any content from unknown event types
+                if hasattr(event, 'content'):
+                    content = str(event.content)
+                    response_content += f"\n{content}"
+                    print(f"[❓ UNKNOWN CONTENT] {content[:100]}...")
+        
+        # 🔧 Priority order for response content with plugin support (same as HTTP fallback)
+        # 1. Plugin responses (highest priority for technical queries)
+        if plugin_responses:
+            # Use the longest/most substantial plugin response
+            best_plugin_response = max(plugin_responses, key=len)
+            if len(best_plugin_response) > 20:
+                print(f"✅ Using plugin response ({len(best_plugin_response)} chars)")
+                response_content = best_plugin_response
+            
+        # Apply the same cleaning as the HTTP fallback
+        if response_content:
+            response_content = clean_ai_response(response_content)
         
         if not response_content.strip():
             raise Exception("Empty response from Coze SDK")
@@ -3532,7 +3816,7 @@ async def save_evaluation_to_database(evaluation_data: Dict, requirement_context
             evaluation_summary = evaluation_data.get('evaluation_summary', {})
             
             # Convert 100-point scale to 5-point scale for database storage
-            overall_score = evaluation_summary.get('overall_score', 0)
+            overall_score = evaluation_summary.get('overall_score_100', evaluation_summary.get('overall_score', 0))
             if overall_score > 5:  # If it's 100-point scale, convert to 5-point scale
                 overall_score_5_point = overall_score / 20.0  # Convert 100-point to 5-point
             else:
@@ -3568,13 +3852,20 @@ async def save_evaluation_to_database(evaluation_data: Dict, requirement_context
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """
                 
+                # Convert scenario score to 5-point scale for database storage
+                scenario_score = record.get('scenario_score_100', record.get('scenario_score', 0))
+                if scenario_score > 5:  # If it's 100-point scale, convert to 5-point scale
+                    scenario_score_5_point = scenario_score / 20.0
+                else:
+                    scenario_score_5_point = scenario_score
+                
                 cursor.execute(insert_scenario_sql, (
                     session_id,
                     scenario_index,
                     scenario.get('title', f'场景 {scenario_index + 1}'),
                     scenario.get('context', ''),
                     scenario.get('user_profile', ''),
-                    record.get('scenario_score', 0),
+                    round(scenario_score_5_point, 2),  # Store as 5-point scale
                     len(conversation_history)
                 ))
                 
@@ -3617,12 +3908,19 @@ async def save_evaluation_to_database(evaluation_data: Dict, requirement_context
                             'goal_alignment': '目标对齐度'
                         }
                         
+                        # Convert dimension score to 5-point scale for database storage
+                        dimension_score = score_data.get('score', 0)
+                        if dimension_score > 5:  # If it's 100-point scale, convert to 5-point scale
+                            dimension_score_5_point = dimension_score / 20.0
+                        else:
+                            dimension_score_5_point = dimension_score
+                        
                         cursor.execute(insert_score_sql, (
                             session_id,
                             scenario_id,
                             dimension_name,
                             dimension_labels.get(dimension_name, dimension_name),
-                            score_data.get('score', 0),
+                            round(dimension_score_5_point, 2),  # Store as 5-point scale
                             score_data.get('detailed_analysis', ''),
                             score_data.get('specific_quotes', ''),
                             score_data.get('improvement_suggestions', ''),
@@ -3743,10 +4041,47 @@ def extract_user_message_from_coze_json(coze_conversation_json: Dict) -> str:
 def clean_ai_response(response: str) -> str:
     """
     Clean AI response to extract meaningful content and filter out system messages
+    Enhanced to properly handle plugin tool outputs
     """
     try:
         original_response = response
         print(f"🧹 Cleaning AI response: {response[:100]}...")
+        
+        # 🔧 NEW: First check if this is a plugin tool output that we want to preserve
+        if response and not response.strip().startswith('{"name":"'):
+            # This might be actual tool output content, preserve it
+            pass
+        elif (response.strip().startswith('{"name":"') and 
+            '"arguments":' in response and
+            '"plugin_id":' in response):
+            # This is a plugin invocation JSON - try to extract tool output
+            try:
+                plugin_data = json.loads(response)
+                tool_output_fields = ['tool_output_content', 'output', 'result', 'content', 'answer']
+                
+                for field in tool_output_fields:
+                    if field in plugin_data and plugin_data[field]:
+                        tool_output = str(plugin_data[field])
+                        if len(tool_output.strip()) > 10:
+                            print(f"🔧 Extracted {field} from plugin JSON: {tool_output[:80]}...")
+                            return clean_ai_response(tool_output)  # Recursive clean
+                
+                # Check nested arguments
+                if 'arguments' in plugin_data and isinstance(plugin_data['arguments'], dict):
+                    args = plugin_data['arguments']
+                    for field in tool_output_fields:
+                        if field in args and args[field]:
+                            tool_output = str(args[field])
+                            if len(tool_output.strip()) > 10:
+                                print(f"🔧 Extracted args.{field} from plugin JSON: {tool_output[:80]}...")
+                                return clean_ai_response(tool_output)  # Recursive clean
+                
+                print("🚫 No useful tool output found in plugin JSON, filtering out")
+                return ""  # Return empty if no tool output found
+                
+            except json.JSONDecodeError:
+                print("🚫 Backup filter: Detected malformed plugin JSON, filtering out")
+                return ""
         
         # Check for pure system messages (skip only if entire response is system content)
         system_only_indicators = [
@@ -3842,28 +4177,59 @@ def clean_ai_response(response: str) -> str:
             except Exception as e:
                 print(f"⚠️ JSON parsing failed: {str(e)}")
         
-        # Handle streaming format patterns
+        # Handle streaming format patterns - enhanced for stream_plugin_finish
         if '"msg_type":"stream_plugin_finish"' in response:
             try:
                 import re
-                pattern = r'"tool_output_content":"([^"]+)"'
-                match = re.search(pattern, response)
-                if match:
-                    content = match.group(1)
-                    content = content.replace('\\n', '\n').replace('\\"', '"')
+                # Try multiple patterns to extract content
+                patterns = [
+                    r'"tool_output_content":"([^"]+)"',
+                    r'"content":"([^"]+)"',
+                    r'"answer":"([^"]+)"',
+                    r'"text":"([^"]+)"'
+                ]
+                
+                for pattern in patterns:
+                    match = re.search(pattern, response)
+                    if match:
+                        content = match.group(1)
+                        content = content.replace('\\n', '\n').replace('\\"', '"').replace('\\t', '\t')
+                        
+                        # Filter out evaluation content
+                        if not any(keyword in content for keyword in [
+                            '用户编写的信息', '用户画像信息', '用户记忆点信息',
+                            'wraped_text', 'origin_search_results'
+                        ]):
+                            if "答案：" in content:
+                                answer_part = content.split("答案：", 1)[1]
+                                answer_part = answer_part.replace("参考依据：", "").replace("依据来源：", "")
+                                cleaned_answer = answer_part.strip()
+                                if len(cleaned_answer) > 5:  # Ensure substantial content
+                                    print(f"✅ Extracted from stream_plugin_finish: {cleaned_answer[:80]}...")
+                                    return cleaned_answer
+                            elif len(content.strip()) > 5:  # Substantial content
+                                print(f"✅ Extracted from stream_plugin_finish: {content.strip()[:80]}...")
+                                return content.strip()
+                            
+                # If no patterns matched, try to parse the JSON directly
+                try:
+                    json_data = json.loads(response)
+                    data_field = json_data.get('data', {})
+                    if isinstance(data_field, str):
+                        # Sometimes data is a JSON string
+                        try:
+                            data_obj = json.loads(data_field)
+                            tool_output = data_obj.get('tool_output_content', '')
+                            if tool_output and len(tool_output.strip()) > 5:
+                                print(f"✅ Extracted from nested JSON: {tool_output[:80]}...")
+                                return tool_output.strip()
+                        except:
+                            pass
+                except:
+                    pass
                     
-                    # Filter out evaluation content
-                    if not any(keyword in content for keyword in [
-                        '用户编写的信息', '用户画像信息', '用户记忆点信息',
-                        'wraped_text', 'origin_search_results'
-                    ]):
-                        if "答案：" in content:
-                            answer_part = content.split("答案：", 1)[1]
-                            answer_part = answer_part.replace("参考依据：", "").replace("依据来源：", "")
-                            return answer_part.strip()
-                        else:
-                            return content.strip()
-            except Exception:
+            except Exception as e:
+                print(f"⚠️ Stream plugin parsing failed: {str(e)}")
                 pass
         
         # Handle plain text with "答案：" pattern
@@ -3880,12 +4246,17 @@ def clean_ai_response(response: str) -> str:
         # Final fallback - return original if it's clean text
         cleaned = response.strip()
         
-        # Final filter check for system content
-        if any(keyword in cleaned for keyword in [
+        # Final filter check for system content (more specific)
+        system_content_patterns = [
             '用户编写的信息', '用户画像信息', '用户记忆点信息',
-            'wraped_text', 'origin_search_results', 'msg_type'
-        ]):
-            print("🚫 Final filter caught system content, returning empty")
+            'wraped_text', 'origin_search_results',
+            '"msg_type":"time_capsule_recall"',
+            '"msg_type":"conversation_summary"',
+            '"msg_type":"system_message"'
+        ]
+        
+        if any(pattern in cleaned for pattern in system_content_patterns):
+            print(f"🚫 Final filter caught system content pattern, returning empty")
             return ""
         
         print(f"✅ Cleaned response: {cleaned[:80]}...")
@@ -3895,7 +4266,43 @@ def clean_ai_response(response: str) -> str:
         print(f"❌ 响应清理异常: {str(e)}")
         return original_response.strip() if len(original_response.strip()) < 500 else ""
 
+async def test_coze_plugin_extraction():
+    """
+    Test function to debug Coze API plugin content extraction
+    """
+    print("🧪 Testing Coze API plugin extraction...")
+    
+    # Test with a simple question that should trigger plugin
+    test_message = "地下室防水卷材搭接宽度不够，基层处理好像也有问题"
+    test_bot_id = "7498244859505999924"  # Default test bot ID
+    
+    try:
+        # Try the HTTP fallback method first
+        print("1️⃣ Testing HTTP fallback method...")
+        result = await call_coze_api_fallback(test_message, test_bot_id)
+        print(f"✅ HTTP fallback result: {result[:200]}...")
+        print(f"📏 Result length: {len(result)} characters")
+        
+        # Test if result contains substantial content
+        if len(result) > 100:
+            print("✅ HTTP fallback appears to work correctly")
+        else:
+            print("❌ HTTP fallback returned minimal content")
+            
+        return result
+        
+    except Exception as e:
+        print(f"❌ Test failed: {str(e)}")
+        return None
+
 if __name__ == "__main__":
-    port = find_available_port(config.DEFAULT_PORT)
-    print(f"🚀 AI Agent评估平台启动在端口 {port}")
-    uvicorn.run(app, host=config.DEFAULT_HOST, port=port) 
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        # Run test mode
+        import asyncio
+        asyncio.run(test_coze_plugin_extraction())
+    else:
+        # Run normal server
+        port = find_available_port(config.DEFAULT_PORT)
+        print(f"🚀 AI Agent评估平台启动在端口 {port}")
+        uvicorn.run(app, host=config.DEFAULT_HOST, port=port) 

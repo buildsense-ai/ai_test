@@ -65,4 +65,23 @@ temp/
 # Project specific
 test_results/
 evaluation_reports/
-uploads/ 
+uploads/
+
+# Testing and debugging files (cleaned up)
+test_*.py
+check_*.py
+*_diagnostic_*.md
+server.log
+
+# Database files (SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment configuration (sensitive)
+config_local.py
+.env.local
+
+# Docker volumes and cache
+docker-compose.override.yml
+.docker/ 
