@@ -55,7 +55,8 @@ logger = logging.getLogger(__name__)
 def check_memory_usage():
     """Check memory usage and prevent OOM crashes"""
     if not PSUTIL_AVAILABLE:
-        return  # Skip if psutil not available
+        print("⚠️ psutil not available, skipping memory check")
+        return 0  # Return 0 instead of None for compatibility
     
     try:
         memory_percent = psutil.virtual_memory().percent
@@ -66,12 +67,14 @@ def check_memory_usage():
         
         if memory_percent > config.MEMORY_WARNING_THRESHOLD:
             print(f"⚠️ 内存使用率警告: {memory_percent:.1f}%")
+        
+        return memory_percent
             
     except HTTPException:
         raise
     except Exception as e:
         print(f"⚠️ 内存检查失败: {str(e)}")
-        # Don't fail the operation if memory check fails
+        return 0  # Return 0 instead of None for compatibility
 
 # Document processing imports
 try:
@@ -950,7 +953,13 @@ async def call_coze_api_fallback(message: str, bot_id: str = None, use_raw_messa
                         print(f"✅ Using streaming content ({len(collected_content)} chars): {collected_content[:100]}...")
                         return clean_ai_response(collected_content)
                     
-                    # 5. If all content was system messages, return empty
+                    # 5. Check for billing errors before returning empty
+                    if "unpaid bills" in response_text or "code\":4027" in response_text:
+                        print("💰 ❌ Coze账户余额不足或有未付账单")
+                        print("💰 详情: https://console.volcengine.com/coze-pro/overview")
+                        return "❌ API Error: Coze账户余额不足，请联系管理员充值账户后重试"
+                    
+                    # 6. If all content was system messages, return empty
                     print("❌ No conversational content found (system messages only)")
                     print(f"🔍 COMPLETE RAW RESPONSE FOR DEBUGGING: {response_text}")
                     return ""  # Return empty to trigger proper handling
@@ -1648,8 +1657,9 @@ async def evaluate_agent_dynamic(
     evaluation_timeout = 600  # 10 minutes total timeout
     
     # Check memory usage before starting evaluation
-    if check_memory_usage() > config.MEMORY_WARNING_THRESHOLD:
-        logger.warning(f"⚠️ High memory usage detected: {check_memory_usage():.1f}%")
+    memory_usage = check_memory_usage()
+    if memory_usage and memory_usage > config.MEMORY_WARNING_THRESHOLD:
+        logger.warning(f"⚠️ High memory usage detected: {memory_usage:.1f}%")
     
     try:
         # Wrap the entire evaluation in a timeout
@@ -1755,7 +1765,9 @@ async def _perform_dynamic_evaluation_internal(
         # Step 1: Process requirement document and extract persona
         try:
             # ⭐ Memory check before document processing
-            check_memory_usage()
+            memory_usage = check_memory_usage()
+            if memory_usage > config.MEMORY_CRITICAL_THRESHOLD:
+                raise HTTPException(status_code=507, detail=f"内存不足 ({memory_usage:.1f}%)")
             
             if requirement_file and requirement_file.filename:
                 logger.info(f"📄 Processing uploaded file: {requirement_file.filename}")
@@ -1804,7 +1816,9 @@ async def _perform_dynamic_evaluation_internal(
         # Step 3: Conduct dynamic multi-scenario evaluation
         try:
             # ⭐ Memory check before evaluation
-            check_memory_usage()
+            memory_usage = check_memory_usage()
+            if memory_usage > config.MEMORY_CRITICAL_THRESHOLD:
+                raise HTTPException(status_code=507, detail=f"内存不足 ({memory_usage:.1f}%)")
             
             logger.info("🎯 Starting dynamic conversation evaluation...")
             print("🎯 开始动态多轮对话评估...")
@@ -2502,9 +2516,11 @@ async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info
             # Get AI response with timeout and conversation continuity
             ai_response = await call_coze_with_strict_timeout(api_config, message_to_send, conversation_manager, True)
             
-            if not ai_response:
+            if not ai_response or len(ai_response.strip()) < 5:
+                print(f"⚠️ 第{turn_num}轮AI响应为空或过短，可能是API问题")
                 failed_turns += 1
                 if failed_turns >= 2:  # Stop if too many failed turns
+                    print("❌ 连续多轮API响应失败，可能是API配置或账户问题，请检查API密钥和账户余额")
                     break
                 continue
             

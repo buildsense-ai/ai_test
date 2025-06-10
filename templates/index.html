@@ -2818,28 +2818,59 @@
             `;
         }
 
-        function toggleCollapsible(sectionId) {
-            const content = document.getElementById(sectionId);
-            const toggle = document.getElementById(sectionId + '-toggle');
+        function toggleCollapsible(element) {
+            // Handle both element and sectionId parameters
+            let content = null;
+            let toggle = null;
+
+            if (typeof element === 'string') {
+                // Direct sectionId passed
+                content = document.getElementById(element);
+                toggle = document.getElementById(element + '-toggle');
+            } else if (element && element.tagName) {
+                // DOM element passed - find the next collapsible-content sibling
+                let currentElement = element;
+
+                // If clicked element is inside the header, find the header
+                while (currentElement && !currentElement.classList.contains('collapsible-header')) {
+                    currentElement = currentElement.parentElement;
+                }
+
+                if (currentElement && currentElement.classList.contains('collapsible-header')) {
+                    // Find the collapsible-content sibling
+                    content = currentElement.nextElementSibling;
+                    while (content && !content.classList.contains('collapsible-content')) {
+                        content = content.nextElementSibling;
+                    }
+
+                    // Find the toggle icon within the header
+                    toggle = currentElement.querySelector('.collapsible-toggle');
+                }
+            }
 
             // Add null checks to prevent TypeError
             if (!content) {
-                console.warn('⚠️ toggleCollapsible: content element not found for', sectionId);
+                console.warn('⚠️ toggleCollapsible: content element not found for', element);
                 return;
             }
 
-            if (!toggle) {
-                console.warn('⚠️ toggleCollapsible: toggle element not found for', sectionId + '-toggle');
-                return;
-            }
-
+            // Toggle the content visibility
             if (content.classList.contains('collapsed')) {
                 content.classList.remove('collapsed');
-                toggle.classList.add('rotated');
+                if (toggle) toggle.classList.add('rotated');
             } else {
                 content.classList.add('collapsed');
-                toggle.classList.remove('rotated');
+                if (toggle) toggle.classList.remove('rotated');
             }
+        }
+
+        // Browser-compatible timeout signal creation
+        function createTimeoutSignal(timeoutMs) {
+            const controller = new AbortController();
+            setTimeout(() => {
+                controller.abort();
+            }, timeoutMs);
+            return controller.signal;
         }
 
         // New function for toggling sections with display:none/block
