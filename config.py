@@ -68,4 +68,31 @@ ENABLE_DATABASE_SAVE = True
 ENABLE_AUTO_SAVE = True
 DATA_RETENTION_DAYS = 365
 
+# Security Configuration
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_INPUT_LENGTH = 100000  # 100KB for text inputs
+MAX_CONFIG_LENGTH = 50000  # 50KB for API configs
+MAX_FILENAME_LENGTH = 255
+EVALUATION_TIMEOUT = 480  # 8 minutes for evaluation
+DEFAULT_REQUEST_TIMEOUT = 120  # 2 minutes for individual API calls
+
+# File Upload Security
+ALLOWED_EXTENSIONS = {'.docx', '.pdf', '.txt'}
+BLOCKED_EXTENSIONS = {'.exe', '.bat', '.cmd', '.sh', '.scr', '.com', '.pif', '.vbs', '.js'}
+
+# Rate Limiting (per minute)
+MAX_EVALUATIONS_PER_MINUTE = 10
+MAX_UPLOADS_PER_MINUTE = 20
+MAX_API_CALLS_PER_MINUTE = 100
+
+# Database Connection Pool
+DB_POOL_SIZE = 10
+DB_MAX_OVERFLOW = 20
+DB_POOL_TIMEOUT = 30
+
+# ⭐ Memory Management
+MEMORY_WARNING_THRESHOLD = 85  # 85% memory usage warning
+MEMORY_CRITICAL_THRESHOLD = 95  # 95% memory usage critical
+
 print("📝 Configuration loaded: DeepSeek API key configured") 
+print("🔒 Security settings loaded") 

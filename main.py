@@ -40,9 +40,38 @@ except ImportError:
 # Import configuration
 import config
 
+# ⭐ Memory monitoring
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    print("⚠️ psutil not available, memory monitoring disabled")
+
 # Set up logging for better debugging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def check_memory_usage():
+    """Check memory usage and prevent OOM crashes"""
+    if not PSUTIL_AVAILABLE:
+        return  # Skip if psutil not available
+    
+    try:
+        memory_percent = psutil.virtual_memory().percent
+        if memory_percent > config.MEMORY_CRITICAL_THRESHOLD:
+            error_msg = f"服务器内存使用率危险: {memory_percent:.1f}%"
+            print(f"❌ {error_msg}")
+            raise HTTPException(status_code=507, detail=f"服务器内存不足 ({memory_percent:.1f}%)，请稍后重试")
+        
+        if memory_percent > config.MEMORY_WARNING_THRESHOLD:
+            print(f"⚠️ 内存使用率警告: {memory_percent:.1f}%")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"⚠️ 内存检查失败: {str(e)}")
+        # Don't fail the operation if memory check fails
 
 # Document processing imports
 try:
@@ -156,6 +185,12 @@ async def process_uploaded_document_improved(file: UploadFile) -> str:
         print("⚠️ 文档上传：文件为空或无文件名")
         return "错误：未提供有效文件"
     
+    # ⭐ Security: Validate filename
+    if not validate_filename(file.filename):
+        error_msg = f"不安全的文件名: {file.filename}"
+        print(f"❌ {error_msg}")
+        return f"错误：{error_msg}"
+    
     # Log file info
     print(f"📄 开始处理上传文件: {file.filename}")
     print(f"📄 文件类型: {getattr(file, 'content_type', '未知')}")
@@ -175,6 +210,12 @@ async def process_uploaded_document_improved(file: UploadFile) -> str:
                 return "错误：上传文件内容为空"
             
             print(f"📤 文件大小: {len(content)} 字节")
+            
+            # ⭐ Critical: File size limit to prevent memory issues
+            if len(content) > config.MAX_FILE_SIZE:
+                error_msg = f"文件大小 {len(content)} 字节超过10MB限制"
+                print(f"❌ {error_msg}")
+                return f"错误：{error_msg}"
             
             tmp_file.write(content)
             tmp_file.flush()
@@ -1419,7 +1460,15 @@ async def evaluate_agent_with_file(
         
         # Parse API configuration
         try:
+            # ⭐ Security: Validate input length
+            if len(agent_api_config) > 50000:  # 50KB limit
+                raise HTTPException(status_code=413, detail="API配置过长，请检查配置内容")
+            
             api_config_dict = json.loads(agent_api_config)
+            
+            # ⭐ Security: Validate API URL if present
+            if 'url' in api_config_dict and not validate_api_url(api_config_dict['url']):
+                raise HTTPException(status_code=400, detail="不安全的API URL")
             
             # Debug: log the received configuration structure
             print(f"🔍 Received API config structure: {json.dumps(api_config_dict, indent=2)}")
@@ -1486,7 +1535,8 @@ async def evaluate_agent_with_file(
                 print("⚠️ Unsupported file format, using text input instead")
                 
         if not requirement_context and requirement_text:
-            requirement_context = requirement_text
+            # ⭐ Security: Sanitize user input
+            requirement_context = sanitize_user_input(requirement_text, max_length=100000)
         
         # Parse conversation scenarios
         scenarios = []
@@ -1644,7 +1694,15 @@ async def _perform_dynamic_evaluation_internal(
         
         # Parse API configuration
         try:
+            # ⭐ Security: Validate input length
+            if len(agent_api_config) > 50000:  # 50KB limit
+                raise HTTPException(status_code=413, detail="API配置过长，请检查配置内容")
+            
             api_config_dict = json.loads(agent_api_config)
+            
+            # ⭐ Security: Validate API URL if present
+            if 'url' in api_config_dict and not validate_api_url(api_config_dict['url']):
+                raise HTTPException(status_code=400, detail="不安全的API URL")
             
             # Debug: log the received configuration structure
             print(f"🔍 Received API config structure: {json.dumps(api_config_dict, indent=2)}")
@@ -1692,13 +1750,17 @@ async def _perform_dynamic_evaluation_internal(
         
         # Step 1: Process requirement document and extract persona
         try:
+            # ⭐ Memory check before document processing
+            check_memory_usage()
+            
             if requirement_file and requirement_file.filename:
                 logger.info(f"📄 Processing uploaded file: {requirement_file.filename}")
                 print(f"📄 Processing uploaded file: {requirement_file.filename}")
                 requirement_context = await process_uploaded_document_improved(requirement_file)
             elif requirement_text:
                 logger.info("📝 Using provided text content")
-                requirement_context = requirement_text
+                # ⭐ Security: Sanitize user input
+                requirement_context = sanitize_user_input(requirement_text, max_length=100000)
             
             if not requirement_context:
                 raise HTTPException(status_code=400, detail="请提供需求文档或文本内容")
@@ -1737,6 +1799,9 @@ async def _perform_dynamic_evaluation_internal(
         
         # Step 3: Conduct dynamic multi-scenario evaluation
         try:
+            # ⭐ Memory check before evaluation
+            check_memory_usage()
+            
             logger.info("🎯 Starting dynamic conversation evaluation...")
             print("🎯 开始动态多轮对话评估...")
             evaluation_results = await conduct_dynamic_multi_scenario_evaluation(
@@ -4294,6 +4359,71 @@ async def test_coze_plugin_extraction():
     except Exception as e:
         print(f"❌ Test failed: {str(e)}")
         return None
+
+# ⭐ Security and validation functions
+def validate_filename(filename: str) -> bool:
+    """Validate uploaded filename for security"""
+    if not filename:
+        return False
+    
+    # Check for path traversal attempts
+    if '..' in filename or '/' in filename or '\\' in filename:
+        return False
+    
+    # Check for dangerous extensions
+    if any(filename.lower().endswith(ext) for ext in config.BLOCKED_EXTENSIONS):
+        return False
+    
+    # Check for allowed extensions
+    file_ext = os.path.splitext(filename)[1].lower()
+    if file_ext not in config.ALLOWED_EXTENSIONS:
+        return False
+    
+    # Check filename length
+    if len(filename) > config.MAX_FILENAME_LENGTH:
+        return False
+    
+    return True
+
+def sanitize_user_input(text: str, max_length: int = None) -> str:
+    """Sanitize user input to prevent injection attacks"""
+    if not text:
+        return ""
+    
+    if max_length is None:
+        max_length = config.MAX_INPUT_LENGTH
+    
+    # Remove null bytes and control characters
+    text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\r\t')
+    
+    # Truncate to max length
+    if len(text) > max_length:
+        text = text[:max_length] + "...[内容截断]"
+    
+    return text.strip()
+
+def validate_api_url(url: str) -> bool:
+    """Validate API URL for security"""
+    if not url:
+        return False
+    
+    # Check for valid HTTP/HTTPS URLs
+    if not (url.startswith('http://') or url.startswith('https://')):
+        return False
+    
+    # Prevent local network access
+    blocked_hosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1']
+    blocked_patterns = [r'192\.168\.', r'10\.', r'172\.(1[6-9]|2\d|3[01])\.']
+    
+    for host in blocked_hosts:
+        if host in url.lower():
+            return False
+    
+    for pattern in blocked_patterns:
+        if re.search(pattern, url):
+            return False
+    
+    return True
 
 if __name__ == "__main__":
     import sys

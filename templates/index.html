@@ -1388,7 +1388,8 @@
 
                 const response = await fetch('/api/extract-user-persona', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    signal: AbortSignal.timeout(300000)  // 5 minutes timeout for persona extraction
                 });
 
                 if (!response.ok) {
@@ -1562,7 +1563,8 @@
 
                     const response = await fetch('/api/evaluate-agent-dynamic', {
                         method: 'POST',
-                        body: formData
+                        body: formData,
+                        signal: AbortSignal.timeout(600000)  // 10 minutes timeout for dynamic evaluation
                     });
 
                     if (!response.ok) {
@@ -1596,7 +1598,8 @@
 
                     const response = await fetch('/api/evaluate-agent-auto', {
                         method: 'POST',
-                        body: formData
+                        body: formData,
+                        signal: AbortSignal.timeout(480000)  // 8 minutes timeout for auto evaluation
                     });
 
                     if (!response.ok) {
@@ -1630,7 +1633,8 @@
 
                     const response = await fetch('/api/evaluate-agent', {
                         method: 'POST',
-                        body: formData
+                        body: formData,
+                        signal: AbortSignal.timeout(480000)  // 8 minutes timeout for manual evaluation
                     });
 
                     if (!response.ok) {
@@ -3220,7 +3224,8 @@
                 // Make request to download endpoint
                 const response = await fetch('/api/download-report', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    signal: AbortSignal.timeout(120000)  // 2 minutes timeout for download
                 });
 
                 if (!response.ok) {
