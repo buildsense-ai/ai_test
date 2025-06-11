@@ -4343,18 +4343,32 @@ def clean_ai_response(response: str) -> str:
         # Final fallback - return original if it's clean text
         cleaned = response.strip()
         
-        # Final filter check for system content (more specific)
-        system_content_patterns = [
-            '用户编写的信息', '用户画像信息', '用户记忆点信息',
-            'wraped_text', 'origin_search_results',
+        # 🔧 DEBUGGING: Check what content is being filtered
+        print(f"🔍 CONTENT FILTER DEBUG: Original length: {len(cleaned)} chars")
+        print(f"🔍 CONTENT FILTER DEBUG: First 200 chars: {cleaned[:200]}...")
+        
+        # Final filter check for system content (REDUCED STRICTNESS)
+        high_priority_system_patterns = [
             '"msg_type":"time_capsule_recall"',
             '"msg_type":"conversation_summary"',
             '"msg_type":"system_message"'
         ]
         
-        if any(pattern in cleaned for pattern in system_content_patterns):
+        # Only filter if it's clearly a system message AND short
+        if (any(pattern in cleaned for pattern in high_priority_system_patterns) and 
+            len(cleaned.strip()) < 1000):  # Only filter short system messages
             print(f"🚫 Final filter caught system content pattern, returning empty")
             return ""
+        
+        # 🔧 NEW: Allow evaluation-related content but warn
+        evaluation_patterns = [
+            '用户编写的信息', '用户画像信息', '用户记忆点信息',
+            'wraped_text', 'origin_search_results'
+        ]
+        
+        if any(pattern in cleaned for pattern in evaluation_patterns):
+            print(f"⚠️ WARNING: Content contains evaluation pattern but allowing it: {cleaned[:100]}...")
+            # Don't return empty - let it through with warning
         
         print(f"✅ Cleaned response: {cleaned[:80]}...")
         return cleaned
