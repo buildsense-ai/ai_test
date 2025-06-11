@@ -19,6 +19,7 @@ import logging
 import traceback
 import uuid
 import hashlib
+import time
 
 # Database imports
 try:
@@ -50,6 +51,14 @@ except ImportError:
 
 # Set up logging for better debugging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Add enhanced debugging for cloud deployment issues
+import traceback
+import logging
+
+# Set up detailed logging for debugging cloud deployment issues
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 def check_memory_usage():
@@ -98,33 +107,225 @@ templates = Jinja2Templates(directory="templates")
 
 # Improved document processing functions based on user's approach
 def read_docx_file(filepath: str) -> str:
-    """Read Word document using direct file path approach"""
+    """Read content from DOCX file with enhanced cloud compatibility"""
     try:
-        if not DOCUMENT_PROCESSING_AVAILABLE:
-            return "文档处理库未安装，请安装 python-docx：pip install python-docx"
+        logger.info(f"📖 开始解析DOCX文件: {filepath}")
+        print(f"📖 开始解析DOCX文件: {filepath}")
         
-        doc = docx.Document(filepath)
-        # Extract text from paragraphs
-        text_parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        # Check if file exists and is readable
+        if not os.path.exists(filepath):
+            error_msg = f"文件不存在: {filepath}"
+            logger.error(error_msg)
+            return f"错误：{error_msg}"
         
-        # Also extract text from tables
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    if cell.text.strip():
-                        text_parts.append(cell.text.strip())
+        file_size = os.path.getsize(filepath)
+        logger.info(f"📄 文件大小: {file_size} 字节")
+        print(f"📄 文件大小: {file_size} 字节")
         
-        # Join and clean the text
-        full_text = "\n".join(text_parts)
-        cleaned_text = full_text.replace("\r", "").replace("　", "").strip()
+        if file_size == 0:
+            error_msg = "文件为空"
+            logger.error(error_msg)
+            return f"错误：{error_msg}"
         
-        print(f"📄 Word文档提取成功，内容长度: {len(cleaned_text)} 字符")
-        return cleaned_text
+        # Cloud-compatible processing with multiple fallback methods
+        extraction_methods = [
+            ("python-docx", lambda: _extract_with_python_docx(filepath)),
+            ("zip-xml-advanced", lambda: _extract_with_zip_xml_advanced(filepath)),
+            ("zip-xml-simple", lambda: _extract_with_zip_xml_simple(filepath)),
+            ("raw-text-extraction", lambda: _extract_raw_text_from_docx(filepath))
+        ]
+        
+        best_result = ""
+        successful_method = "none"
+        
+        for method_name, extraction_func in extraction_methods:
+            try:
+                logger.info(f"🔄 尝试方法: {method_name}")
+                print(f"🔄 尝试方法: {method_name}")
+                
+                result = extraction_func()
+                
+                if result and len(result) > len(best_result):
+                    best_result = result
+                    successful_method = method_name
+                    logger.info(f"✅ {method_name} 成功，提取长度: {len(result)}")
+                    print(f"✅ {method_name} 成功，提取长度: {len(result)}")
+                    
+                    # If we get a good result (>100 chars), use it immediately
+                    if len(result) > 100:
+                        break
+                else:
+                    logger.warning(f"⚠️ {method_name} 结果不佳: {len(result) if result else 0} 字符")
+                    print(f"⚠️ {method_name} 结果不佳: {len(result) if result else 0} 字符")
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ {method_name} 失败: {str(e)}")
+                print(f"⚠️ {method_name} 失败: {str(e)}")
+                continue
+        
+        if not best_result:
+            return "错误：所有解析方法均失败，建议转换为TXT格式后重试"
+        
+        # Validate extraction result
+        if len(best_result) < 20:
+            logger.warning(f"⚠️ 提取内容过短: {len(best_result)} 字符")
+            print(f"⚠️ 提取内容过短: {len(best_result)} 字符")
+            
+            if len(best_result) < 10:
+                return f"错误：提取内容过短({len(best_result)}字符)，建议转换为TXT格式：\n\n💡 解决方案：\n1. 使用Word打开文档，另存为.txt格式\n2. 或复制文档内容，直接粘贴到文本框中\n3. 检查文档是否包含主要为图片/表格内容"
+        
+        logger.info(f"✅ DOCX解析成功 (方法: {successful_method})，提取长度: {len(best_result)} 字符")
+        print(f"✅ DOCX解析成功 (方法: {successful_method})，提取长度: {len(best_result)} 字符")
+        
+        # Debug: Show first part of content to verify extraction
+        content_preview = best_result[:200] + "..." if len(best_result) > 200 else best_result
+        logger.debug(f"📝 内容预览: {content_preview}")
+        print(f"📝 内容预览: {content_preview}")
+        
+        return best_result
         
     except Exception as e:
-        error_msg = f"Word文档解析失败: {str(e)}"
+        error_msg = f"DOCX文件处理异常: {str(e)}"
+        logger.error(f"❌ {error_msg}")
+        logger.error(f"📋 异常详情: {traceback.format_exc()}")
         print(f"❌ {error_msg}")
-        return error_msg
+        print(f"📋 异常详情: {traceback.format_exc()}")
+        return f"错误：{error_msg}\n\n💡 云环境解决方案：\n1. 转换为TXT格式重新上传\n2. 复制文档内容直接粘贴\n3. 检查文档是否过于复杂"
+
+def _extract_with_python_docx(filepath: str) -> str:
+    """Method 1: Standard python-docx extraction"""
+    from docx import Document
+    
+    doc = Document(filepath)
+    full_text = []
+    
+    # Extract paragraphs
+    for paragraph in doc.paragraphs:
+        if paragraph.text.strip():
+            full_text.append(paragraph.text.strip())
+    
+    # Extract tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                if cell.text.strip():
+                    full_text.append(cell.text.strip())
+    
+    return '\n'.join(full_text)
+
+def _extract_with_zip_xml_advanced(filepath: str) -> str:
+    """Method 2: Advanced ZIP+XML extraction with namespace handling"""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    
+    with zipfile.ZipFile(filepath, 'r') as zip_file:
+        # Try to get document.xml
+        xml_content = zip_file.read('word/document.xml')
+        
+        # Parse with namespace awareness
+        root = ET.fromstring(xml_content)
+        
+        # Define Word document namespaces
+        namespaces = {
+            'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+            'v': 'urn:schemas-microsoft-com:vml',
+            'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+        }
+        
+        text_parts = []
+        
+        # Extract text from paragraphs
+        for para in root.findall('.//w:p', namespaces):
+            para_text = ""
+            for text_elem in para.findall('.//w:t', namespaces):
+                if text_elem.text:
+                    para_text += text_elem.text
+            if para_text.strip():
+                text_parts.append(para_text.strip())
+        
+        # Extract text from tables
+        for table in root.findall('.//w:tbl', namespaces):
+            for row in table.findall('.//w:tr', namespaces):
+                row_text = ""
+                for cell in row.findall('.//w:tc', namespaces):
+                    cell_text = ""
+                    for text_elem in cell.findall('.//w:t', namespaces):
+                        if text_elem.text:
+                            cell_text += text_elem.text
+                    if cell_text.strip():
+                        row_text += cell_text.strip() + " "
+                if row_text.strip():
+                    text_parts.append(row_text.strip())
+        
+        return '\n'.join(text_parts)
+
+def _extract_with_zip_xml_simple(filepath: str) -> str:
+    """Method 3: Simple ZIP+XML extraction (cloud fallback)"""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    
+    with zipfile.ZipFile(filepath, 'r') as zip_file:
+        xml_content = zip_file.read('word/document.xml')
+        root = ET.fromstring(xml_content)
+        
+        # Simple text extraction - get all text elements
+        text_content = []
+        for elem in root.iter():
+            if elem.text and elem.text.strip():
+                text_content.append(elem.text.strip())
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_text = []
+        for text in text_content:
+            if text not in seen and len(text) > 1:  # Avoid single characters
+                seen.add(text)
+                unique_text.append(text)
+        
+        return ' '.join(unique_text)
+
+def _extract_raw_text_from_docx(filepath: str) -> str:
+    """Method 4: Raw text extraction from ZIP (last resort)"""
+    import zipfile
+    import re
+    
+    with zipfile.ZipFile(filepath, 'r') as zip_file:
+        # Try to extract any readable text from the ZIP contents
+        text_parts = []
+        
+        # Read document.xml as raw text and extract with regex
+        try:
+            xml_content = zip_file.read('word/document.xml').decode('utf-8', errors='ignore')
+            
+            # Use regex to find text between XML tags
+            text_matches = re.findall(r'>([^<]+)<', xml_content)
+            
+            for match in text_matches:
+                cleaned = match.strip()
+                if len(cleaned) > 2 and not cleaned.isdigit():  # Skip numbers and short strings
+                    text_parts.append(cleaned)
+            
+        except Exception:
+            pass
+        
+        # Also try other XML files in the document
+        for file_info in zip_file.filelist:
+            if file_info.filename.endswith('.xml') and 'word/' in file_info.filename:
+                try:
+                    content = zip_file.read(file_info.filename).decode('utf-8', errors='ignore')
+                    text_matches = re.findall(r'>([^<]+)<', content)
+                    
+                    for match in text_matches:
+                        cleaned = match.strip()
+                        if len(cleaned) > 2 and not cleaned.isdigit():
+                            text_parts.append(cleaned)
+                            
+                except Exception:
+                    continue
+        
+        # Remove duplicates and join
+        unique_parts = list(dict.fromkeys(text_parts))  # Preserve order
+        return ' '.join(unique_parts)
 
 def read_pdf_file(filepath: str) -> str:
     """Read PDF document using direct file path approach"""
@@ -185,93 +386,129 @@ def read_txt_file(filepath: str) -> str:
 async def process_uploaded_document_improved(file: UploadFile) -> str:
     """Process uploaded document using improved approach with comprehensive error handling"""
     if not file or not file.filename:
+        logger.error("⚠️ 文档上传：文件为空或无文件名")
         print("⚠️ 文档上传：文件为空或无文件名")
         return "错误：未提供有效文件"
     
     # ⭐ Security: Validate filename
     if not validate_filename(file.filename):
         error_msg = f"不安全的文件名: {file.filename}"
+        logger.error(f"❌ {error_msg}")
         print(f"❌ {error_msg}")
         return f"错误：{error_msg}"
     
-    # Log file info
+    # Log file info with detailed debugging
+    logger.info(f"📄 开始处理上传文件: {file.filename}")
+    logger.info(f"📄 文件类型: {getattr(file, 'content_type', '未知')}")
     print(f"📄 开始处理上传文件: {file.filename}")
     print(f"📄 文件类型: {getattr(file, 'content_type', '未知')}")
     
     # Create temporary file
     suffix = os.path.splitext(file.filename)[1].lower()
+    logger.info(f"📄 检测文件扩展名: {suffix}")
     print(f"📄 检测文件扩展名: {suffix}")
     
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
         try:
             # Write uploaded content to temporary file
+            logger.info("📤 读取上传文件内容...")
             print("📤 读取上传文件内容...")
             content = await file.read()
             
             if not content:
+                logger.error("❌ 上传文件内容为空")
                 print("❌ 上传文件内容为空")
                 return "错误：上传文件内容为空"
             
+            logger.info(f"📤 文件大小: {len(content)} 字节")
             print(f"📤 文件大小: {len(content)} 字节")
             
             # ⭐ Critical: File size limit to prevent memory issues
             if len(content) > config.MAX_FILE_SIZE:
                 error_msg = f"文件大小 {len(content)} 字节超过10MB限制"
+                logger.error(f"❌ {error_msg}")
                 print(f"❌ {error_msg}")
                 return f"错误：{error_msg}"
             
             tmp_file.write(content)
             tmp_file.flush()
             
+            logger.info(f"💾 临时文件已创建: {tmp_file.name}")
             print(f"💾 临时文件已创建: {tmp_file.name}")
             
-            # Process based on file extension
-            if suffix in ['.doc', '.docx']:
-                print("📖 使用Word文档解析器...")
-                result = read_docx_file(tmp_file.name)
-            elif suffix == '.pdf':
-                print("📖 使用PDF文档解析器...")
-                result = read_pdf_file(tmp_file.name)
-            elif suffix == '.txt':
-                print("📖 使用文本文件解析器...")
-                result = read_txt_file(tmp_file.name)
-            else:
-                error_msg = f"不支持的文件格式: {suffix}。支持格式: Word (.docx), PDF (.pdf), 文本 (.txt)"
-                print(f"❌ {error_msg}")
-                return error_msg
+            # Process based on file extension with enhanced debugging
+            try:
+                if suffix in ['.doc', '.docx']:
+                    logger.info("📖 使用Word文档解析器...")
+                    print("📖 使用Word文档解析器...")
+                    result = read_docx_file(tmp_file.name)
+                elif suffix == '.pdf':
+                    logger.info("📖 使用PDF文档解析器...")
+                    print("📖 使用PDF文档解析器...")
+                    result = read_pdf_file(tmp_file.name)
+                elif suffix == '.txt':
+                    logger.info("📖 使用文本文件解析器...")
+                    print("📖 使用文本文件解析器...")
+                    result = read_txt_file(tmp_file.name)
+                else:
+                    error_msg = f"不支持的文件格式: {suffix}。支持格式: Word (.docx), PDF (.pdf), 文本 (.txt)"
+                    logger.error(f"❌ {error_msg}")
+                    print(f"❌ {error_msg}")
+                    return error_msg
+            except Exception as parse_error:
+                logger.error(f"❌ 文档解析异常: {str(parse_error)}")
+                logger.error(f"📋 解析异常详情: {traceback.format_exc()}")
+                print(f"❌ 文档解析异常: {str(parse_error)}")
+                print(f"📋 解析异常详情: {traceback.format_exc()}")
+                return f"错误：文档解析失败 - {type(parse_error).__name__}: {str(parse_error)}"
             
-            # Validate result
+            # Validate result with enhanced debugging
             if not result:
+                logger.error("❌ 文档解析结果为空")
                 print("❌ 文档解析结果为空")
                 return "错误：文档解析结果为空，可能文件已损坏或格式不正确"
             
             if len(result) < 10:
+                logger.warning(f"⚠️ 文档解析结果过短: {len(result)} 字符")
                 print(f"⚠️ 文档解析结果过短: {len(result)} 字符")
                 return f"错误：文档内容过短({len(result)}字符)，可能解析失败"
             
             # Check for error messages in result
             error_indicators = ['error', 'exception', 'traceback', 'failed', 'Error:', 'Exception:', '处理失败', '解析失败']
             if any(indicator in result for indicator in error_indicators):
+                logger.warning("⚠️ 解析结果中包含错误信息")
                 print("⚠️ 解析结果中包含错误信息")
                 return "错误：文档解析过程中出现错误，请检查文件格式或内容"
             
+            # Debug: Log partial content to help with debugging
+            content_preview = result[:500] + "..." if len(result) > 500 else result
+            logger.info(f"✅ 文档处理成功，提取内容长度: {len(result)} 字符")
+            logger.debug(f"📝 文档内容预览: {content_preview}")
             print(f"✅ 文档处理成功，提取内容长度: {len(result)} 字符")
+            print(f"📝 文档内容预览: {content_preview}")
+            
             return result
             
         except Exception as e:
             error_msg = f"文档处理异常: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            logger.error(f"📋 异常类型: {type(e).__name__}")
+            logger.error(f"📋 异常详情: {traceback.format_exc()}")
             print(f"❌ {error_msg}")
             print(f"📋 异常类型: {type(e).__name__}")
+            print(f"📋 异常详情: {traceback.format_exc()}")
             
             # Return a clean error message instead of the raw exception
-            return f"错误：文档处理失败 - {type(e).__name__}。请检查文件格式是否正确。"
+            return f"错误：文档处理失败 - {type(e).__name__}: {str(e)}。请检查文件格式是否正确。"
         finally:
             # Clean up temporary file
             try:
                 if os.path.exists(tmp_file.name):
                     os.unlink(tmp_file.name)
+                    logger.info(f"🗑️ 临时文件已清理: {tmp_file.name}")
                     print(f"🗑️ 临时文件已清理: {tmp_file.name}")
             except Exception as cleanup_error:
+                logger.warning(f"⚠️ 临时文件清理失败: {str(cleanup_error)}")
                 print(f"⚠️ 临时文件清理失败: {str(cleanup_error)}")
                 pass
 
@@ -457,11 +694,12 @@ async def call_deepseek_api(prompt: str, max_retries: int = 2) -> str:
 async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None, use_raw_message: bool = False) -> str:
     """Call AI Agent API - supports Coze, Dify, and custom APIs with conversation continuity"""
     try:
-        # 🐛 Debug log for user message tracing
+        # 📝 Debug log for message processing mode
+        message_preview = message[:80] + "..." if len(message) > 80 else message
         if use_raw_message:
-            print(f"🔍 [RAW MESSAGE MODE] Using exact user input: {message[:100]}...")
+            print(f"🔍 [RAW MODE] {message_preview}")
         else:
-            print(f"🔍 [ENHANCED MODE] Using processed message: {message[:100]}...")
+            print(f"🔍 [ENHANCED MODE] {message_preview}")
         
         # Check if we should use Coze API (either explicit coze URL or fallback URL)
         if "coze" in api_config.url.lower() or "fallback" in api_config.url.lower():
@@ -536,12 +774,13 @@ async def call_dify_api(api_config: APIConfig, message: str, conversation_id: st
         headers.setdefault("Content-Type", "application/json")
         
         # Dify API specific payload format with conversation continuity
-        # 🐛 Debug log for Dify message processing
+        # 📝 Debug log for Dify message processing  
+        message_preview = message[:60] + "..." if len(message) > 60 else message
         if use_raw_message:
-            print(f"🔍 [DIFY RAW] Processing raw user message: {message[:100]}...")
+            print(f"🔍 [DIFY RAW] {message_preview}")
             user_field = "evaluation-user-raw"
         else:
-            print(f"🔍 [DIFY ENHANCED] Processing enhanced message: {message[:100]}...")
+            print(f"🔍 [DIFY ENHANCED] {message_preview}")
             user_field = "evaluation-user"
             
         payload = {
@@ -702,8 +941,9 @@ async def call_coze_api_fallback(message: str, bot_id: str = None, use_raw_messa
         "stream": True
     }
 
-    print(f"🔍 [RAW MESSAGE] 发送原始消息到Coze: {message}")
-    print(f"🔍 [RAW MESSAGE MODE] Using exact user input: {message[:50]}...")
+    # 📝 Clean debug logging
+    message_preview = message[:60] + "..." if len(message) > 60 else message
+    print(f"🔍 [COZE] {message_preview}")
 
     try:
         async with httpx.AsyncClient(timeout=config.COZE_TIMEOUT) as client:
@@ -1064,7 +1304,7 @@ async def call_coze_api_sdk(bot_id: str, message: str) -> str:
     try:
         # Initialize Coze client with config settings
         coze = Coze(
-            auth=TokenAuth(token=config.COZE_API_KEY), 
+            auth=TokenAuth(token=config.COZE_API_TOKEN), 
             base_url=COZE_CN_BASE_URL
         )
         
@@ -3330,6 +3570,24 @@ async def extract_user_persona_with_deepseek(requirement_content: str) -> Dict[s
     Enhanced with better document analysis and content matching
     """
     
+    # Debug: Log the document content for troubleshooting
+    logger.info(f"🎭 开始用户画像提取，文档长度: {len(requirement_content)}")
+    logger.debug(f"📝 文档内容前1000字符: {requirement_content[:1000]}")
+    print(f"🎭 开始用户画像提取，文档长度: {len(requirement_content)}")
+    print(f"📝 文档内容前500字符: {requirement_content[:500]}")
+    
+    # Pre-analysis: Check for construction/civil engineering keywords
+    construction_keywords = ['建筑', '施工', '工程', '监理', '现场', '质量检查', '安全规范', '建筑施工', '土建', '钢筋', '混凝土', '基础工程', '结构工程', '安装工程', '装修工程']
+    civil_keywords = ['民用建筑', '工业建筑', '基础设施', '道路工程', '桥梁工程', '水电工程', '暖通工程', '消防工程', '园林工程', '市政工程']
+    
+    found_construction = [kw for kw in construction_keywords if kw in requirement_content]
+    found_civil = [kw for kw in civil_keywords if kw in requirement_content]
+    
+    logger.info(f"🔍 检测到建筑关键词: {found_construction}")
+    logger.info(f"🔍 检测到土建关键词: {found_civil}")
+    print(f"🔍 检测到建筑关键词: {found_construction}")
+    print(f"🔍 检测到土建关键词: {found_civil}")
+    
     # First, perform content analysis to identify key domain indicators
     content_analysis_prompt = f"""
 请仔细分析以下需求文档的内容，并识别关键信息：
@@ -3338,10 +3596,12 @@ async def extract_user_persona_with_deepseek(requirement_content: str) -> Dict[s
 {requirement_content[:1500]}
 
 请识别：
-1. 文档主要涉及的行业/领域（如：建筑工程、银行金融、客服咨询、技术支持等）
-2. 主要业务类型（如：现场监理、规范查询、客户服务、故障排除等）
-3. 用户可能的工作角色（如：工程监理、银行客服、技术工程师等）
-4. 使用场景特征（如：现场作业、办公室工作、移动办公等）
+1. 文档主要涉及的行业/领域（如：建筑工程、土木工程、银行金融、客服咨询、技术支持等）
+2. 主要业务类型（如：施工现场监理、工程质量检查、规范查询、客户服务、故障排除等）
+3. 用户可能的工作角色（如：土建工程师、建筑监理、银行客服、技术工程师等）
+4. 使用场景特征（如：建筑现场作业、施工监理、办公室工作、移动办公等）
+
+**特别注意**：如果文档涉及建筑、施工、工程监理等内容，请准确识别为建筑工程领域。
 
 只输出关键词，用逗号分隔，不要解释：
 行业领域：
@@ -3349,10 +3609,14 @@ async def extract_user_persona_with_deepseek(requirement_content: str) -> Dict[s
 用户角色：
 使用场景：
 """
-
+    
     try:
         # Step 1: Analyze document content
+        logger.info("🔍 开始文档内容分析...")
+        print("🔍 开始文档内容分析...")
+        
         content_analysis = await call_deepseek_api_enhanced(content_analysis_prompt, temperature=0.2, max_tokens=200)
+        logger.info(f"📋 内容分析结果: {content_analysis}")
         print(f"📋 内容分析结果: {content_analysis}")
         
         # Parse analysis results
@@ -3363,6 +3627,9 @@ async def extract_user_persona_with_deepseek(requirement_content: str) -> Dict[s
             if '：' in line:
                 key, value = line.split('：', 1)
                 domain_hints[key.strip()] = value.strip()
+        
+        logger.info(f"🔍 解析得到的领域提示: {domain_hints}")
+        print(f"🔍 解析得到的领域提示: {domain_hints}")
         
         # Step 2: Enhanced extraction with domain-specific guidance
         extraction_prompt = f"""
@@ -3554,17 +3821,45 @@ def adjust_role_for_domain_consistency(extraction_result: Dict, domain_hints: Di
 def create_domain_aware_fallback_result(requirement_content: str, domain_hints: Dict) -> Dict[str, Any]:
     """
     Create a domain-aware fallback result when parsing fails
+    Enhanced with better construction/civil engineering detection
     """
-    # Extract domain information
+    logger.info("🔄 创建领域感知的回退结果...")
+    print("🔄 创建领域感知的回退结果...")
+    
+    # Extract domain information with enhanced construction detection
     domain = domain_hints.get('行业领域', extract_business_domain_from_content(requirement_content))
     role = domain_hints.get('用户角色', extract_role_from_content(requirement_content))
     
-    # Ensure role matches domain
-    if '建筑' in domain.lower() or '工程' in domain.lower():
-        role = role if '工程' in role or '监理' in role else '建筑工程监理'
+    logger.info(f"🏢 检测到领域: {domain}")
+    logger.info(f"👤 检测到角色: {role}")
+    print(f"🏢 检测到领域: {domain}")
+    print(f"👤 检测到角色: {role}")
+    
+    # Enhanced construction/civil engineering detection
+    construction_indicators = ['建筑', '施工', '工程', '监理', '现场', '质量', '安全', '规范', '建设', '土建', '结构', '基础']
+    if any(indicator in requirement_content for indicator in construction_indicators):
+        logger.info("🏗️ 强制设置为建筑工程领域")
+        print("🏗️ 强制设置为建筑工程领域")
+        domain = '建筑工程'
+        role = '土建工程师' if not role or '技术' in role else role
+    
+    # Ensure role matches domain with enhanced construction handling
+    if '建筑' in domain.lower() or '工程' in domain.lower() or '施工' in domain.lower():
+        # More accurate civil engineering role detection
+        if '监理' in requirement_content:
+            role = '建筑工程监理'
+        elif '施工' in requirement_content:
+            role = '施工工程师'
+        elif '设计' in requirement_content:
+            role = '建筑设计师'
+        elif '质量' in requirement_content:
+            role = '质量工程师'
+        else:
+            role = '土建工程师'  # Default for construction
+        
         business_domain = '建筑工程'
-        typical_questions = ["这个规范要求是什么？", "施工标准符合吗？", "质量检查怎么做？"]
-        fuzzy_expressions = ["这个地方有问题", "标准不太对", "需要检查一下"]
+        typical_questions = ["这个规范要求是什么？", "施工标准符合吗？", "质量检查怎么做？", "安全措施到位吗？", "这个材料符合标准吗？"]
+        fuzzy_expressions = ["这个地方有问题", "标准不太对", "需要检查一下", "质量有点问题", "不太符合规范"]
     elif '银行' in domain.lower() or '金融' in domain.lower():
         role = role if '客服' in role or '银行' in role else '银行客服代表'
         business_domain = '银行金融服务'
@@ -3626,14 +3921,27 @@ def extract_role_from_content(content: str) -> Optional[str]:
     return None
 
 def extract_business_domain_from_content(content: str) -> str:
-    """Extract business domain from content"""
-    if "银行" in content or "金融" in content:
-        return "银行金融服务"
-    elif "建筑" in content or "工程" in content:
+    """Extract business domain from content with enhanced construction detection"""
+    logger.debug(f"🔍 分析业务领域，内容前200字符: {content[:200]}")
+    
+    # Enhanced construction/civil engineering detection
+    construction_keywords = ['建筑', '施工', '工程', '监理', '现场', '质量检查', '安全规范', '建筑施工', '土建', '钢筋', '混凝土', '基础工程', '结构工程']
+    civil_keywords = ['民用建筑', '工业建筑', '基础设施', '道路工程', '桥梁工程', '水电工程', '暖通工程', '消防工程']
+    
+    construction_count = sum(1 for kw in construction_keywords if kw in content)
+    civil_count = sum(1 for kw in civil_keywords if kw in content)
+    
+    logger.debug(f"🏗️ 建筑关键词匹配数: {construction_count}")
+    logger.debug(f"🏗️ 土建关键词匹配数: {civil_count}")
+    
+    if construction_count > 0 or civil_count > 0:
+        logger.info("✅ 识别为建筑工程领域")
         return "建筑工程"
+    elif "银行" in content or "金融" in content:
+        return "银行金融服务"
     elif "客服" in content:
         return "客户服务"
-    elif "技术" in content:
+    elif "技术" in content and "工程" not in content:  # Avoid misclassifying engineering as tech support
         return "技术支持"
     else:
         return "专业服务"
@@ -3825,21 +4133,25 @@ async def extract_user_persona(
     Extract user persona from requirement document
     """
     try:
+        logger.info("🎭 开始用户画像提取...")
         print("🎭 开始用户画像提取...")
         
         # Handle requirement document
         requirement_context = ""
         
         if requirement_file and requirement_file.filename:
+            logger.info(f"📄 Processing uploaded file: {requirement_file.filename}")
             print(f"📄 Processing uploaded file: {requirement_file.filename}")
             requirement_context = await process_uploaded_document_improved(requirement_file)
         elif requirement_text:
+            logger.info("📝 Using provided text content")
             print("📝 Using provided text content")
             requirement_context = requirement_text
         
         if not requirement_context:
             raise HTTPException(status_code=400, detail="请提供需求文档或文本内容")
             
+        logger.info(f"✅ Document processed, length: {len(requirement_context)} characters")
         print(f"✅ Document processed, length: {len(requirement_context)} characters")
         
         # Extract user persona using enhanced algorithm
@@ -3857,8 +4169,128 @@ async def extract_user_persona(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"❌ Persona extraction failed: {str(e)}")
+        logger.error(f"📋 Traceback: {traceback.format_exc()}")
         print(f"❌ Persona extraction failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"用户画像提取失败: {str(e)}")
+
+@app.post("/api/debug-document-processing")
+async def debug_document_processing(
+    requirement_file: UploadFile = File(None),
+    requirement_text: str = Form(None)
+):
+    """
+    Debug endpoint to test document processing and persona extraction separately
+    This helps identify where the issue occurs in cloud deployment
+    """
+    try:
+        result = {
+            "document_processing": {},
+            "persona_extraction": {},
+            "domain_analysis": {},
+            "errors": []
+        }
+        
+        # Step 1: Document Processing
+        requirement_context = ""
+        
+        if requirement_file and requirement_file.filename:
+            logger.info(f"🧪 Debug: Processing file {requirement_file.filename}")
+            try:
+                requirement_context = await process_uploaded_document_improved(requirement_file)
+                result["document_processing"] = {
+                    "status": "success",
+                    "filename": requirement_file.filename,
+                    "content_length": len(requirement_context),
+                    "content_preview": requirement_context[:300] + "..." if len(requirement_context) > 300 else requirement_context,
+                    "file_type": getattr(requirement_file, 'content_type', 'unknown')
+                }
+            except Exception as e:
+                error_msg = f"Document processing failed: {str(e)}"
+                result["document_processing"] = {
+                    "status": "error",
+                    "error": error_msg,
+                    "traceback": traceback.format_exc()
+                }
+                result["errors"].append(error_msg)
+                
+        elif requirement_text:
+            requirement_context = requirement_text
+            result["document_processing"] = {
+                "status": "success",
+                "source": "text_input",
+                "content_length": len(requirement_context),
+                "content_preview": requirement_context[:300] + "..." if len(requirement_context) > 300 else requirement_context
+            }
+        
+        if not requirement_context:
+            result["errors"].append("No document content available")
+            return result
+        
+        # Step 2: Domain Analysis
+        try:
+            domain = extract_business_domain_from_content(requirement_context)
+            role = extract_role_from_content(requirement_context)
+            
+            # Construction keywords analysis
+            construction_keywords = ['建筑', '施工', '工程', '监理', '现场', '质量检查', '安全规范', '建筑施工', '土建', '钢筋', '混凝土', '基础工程', '结构工程']
+            found_keywords = [kw for kw in construction_keywords if kw in requirement_context]
+            
+            result["domain_analysis"] = {
+                "status": "success",
+                "detected_domain": domain,
+                "detected_role": role,
+                "construction_keywords_found": found_keywords,
+                "total_construction_keywords": len(found_keywords),
+                "is_construction_content": len(found_keywords) > 0
+            }
+        except Exception as e:
+            error_msg = f"Domain analysis failed: {str(e)}"
+            result["domain_analysis"] = {
+                "status": "error",
+                "error": error_msg
+            }
+            result["errors"].append(error_msg)
+        
+        # Step 3: Persona Extraction
+        try:
+            user_persona_info = await extract_user_persona_with_deepseek(requirement_context)
+            result["persona_extraction"] = {
+                "status": "success",
+                "extracted_role": user_persona_info.get('user_persona', {}).get('role', 'N/A'),
+                "business_domain": user_persona_info.get('usage_context', {}).get('business_domain', 'N/A'),
+                "extraction_method": "deepseek_api",
+                "full_result": user_persona_info
+            }
+        except Exception as e:
+            error_msg = f"Persona extraction failed: {str(e)}"
+            result["persona_extraction"] = {
+                "status": "error",
+                "error": error_msg,
+                "traceback": traceback.format_exc()
+            }
+            result["errors"].append(error_msg)
+            
+            # Try fallback method
+            try:
+                fallback_result = create_domain_aware_fallback_result(requirement_context, {})
+                result["persona_extraction"]["fallback_result"] = {
+                    "role": fallback_result.get('user_persona', {}).get('role', 'N/A'),
+                    "business_domain": fallback_result.get('usage_context', {}).get('business_domain', 'N/A'),
+                    "method": "fallback"
+                }
+            except Exception as fallback_error:
+                result["persona_extraction"]["fallback_error"] = str(fallback_error)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Debug endpoint failed: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 # Database related functions
 def get_database_connection():
@@ -4470,6 +4902,316 @@ def validate_api_url(url: str) -> bool:
             return False
     
     return True
+
+@app.post("/api/convert-docx-to-text")
+async def convert_docx_to_text(
+    requirement_file: UploadFile = File(...),
+):
+    """
+    Cloud-compatible DOCX to text conversion endpoint
+    Provides detailed extraction methods and fallback options
+    """
+    try:
+        if not requirement_file or not requirement_file.filename:
+            raise HTTPException(status_code=400, detail="未提供文件")
+        
+        if not requirement_file.filename.lower().endswith('.docx'):
+            raise HTTPException(status_code=400, detail="仅支持DOCX格式文件")
+        
+        # Validate file
+        if not validate_filename(requirement_file.filename):
+            raise HTTPException(status_code=400, detail="不安全的文件名")
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
+            try:
+                content = await requirement_file.read()
+                
+                if len(content) > config.MAX_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail="文件过大，请使用小于10MB的文件")
+                
+                tmp_file.write(content)
+                tmp_file.flush()
+                
+                # Try all extraction methods and return best result
+                extraction_results = {}
+                
+                # Method 1: python-docx
+                try:
+                    result1 = _extract_with_python_docx(tmp_file.name)
+                    extraction_results['python_docx'] = {
+                        'success': True,
+                        'content': result1,
+                        'length': len(result1),
+                        'method': 'python-docx library'
+                    }
+                except Exception as e:
+                    extraction_results['python_docx'] = {
+                        'success': False,
+                        'error': str(e),
+                        'method': 'python-docx library'
+                    }
+                
+                # Method 2: ZIP+XML Advanced
+                try:
+                    result2 = _extract_with_zip_xml_advanced(tmp_file.name)
+                    extraction_results['zip_xml_advanced'] = {
+                        'success': True,
+                        'content': result2,
+                        'length': len(result2),
+                        'method': 'ZIP+XML with namespaces'
+                    }
+                except Exception as e:
+                    extraction_results['zip_xml_advanced'] = {
+                        'success': False,
+                        'error': str(e),
+                        'method': 'ZIP+XML with namespaces'
+                    }
+                
+                # Method 3: ZIP+XML Simple
+                try:
+                    result3 = _extract_with_zip_xml_simple(tmp_file.name)
+                    extraction_results['zip_xml_simple'] = {
+                        'success': True,
+                        'content': result3,
+                        'length': len(result3),
+                        'method': 'Simple ZIP+XML parsing'
+                    }
+                except Exception as e:
+                    extraction_results['zip_xml_simple'] = {
+                        'success': False,
+                        'error': str(e),
+                        'method': 'Simple ZIP+XML parsing'
+                    }
+                
+                # Method 4: Raw text extraction
+                try:
+                    result4 = _extract_raw_text_from_docx(tmp_file.name)
+                    extraction_results['raw_extraction'] = {
+                        'success': True,
+                        'content': result4,
+                        'length': len(result4),
+                        'method': 'Raw text extraction with regex'
+                    }
+                except Exception as e:
+                    extraction_results['raw_extraction'] = {
+                        'success': False,
+                        'error': str(e),
+                        'method': 'Raw text extraction with regex'
+                    }
+                
+                # Find best result
+                best_result = None
+                best_method = None
+                best_length = 0
+                
+                for method, result in extraction_results.items():
+                    if result['success'] and result['length'] > best_length:
+                        best_result = result['content']
+                        best_method = method
+                        best_length = result['length']
+                
+                return {
+                    "success": best_result is not None,
+                    "best_method": best_method,
+                    "best_content": best_result,
+                    "content_length": best_length,
+                    "extraction_ratio": (best_length / len(content) * 100) if len(content) > 0 else 0,
+                    "all_methods": extraction_results,
+                    "recommendations": _generate_conversion_recommendations(extraction_results, len(content)),
+                    "filename": requirement_file.filename,
+                    "file_size": len(content)
+                }
+                
+            finally:
+                try:
+                    if os.path.exists(tmp_file.name):
+                        os.unlink(tmp_file.name)
+                except:
+                    pass
+                    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ DOCX转换失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"文档转换失败: {str(e)}")
+
+def _generate_conversion_recommendations(extraction_results: Dict, file_size: int) -> List[str]:
+    """Generate recommendations based on extraction results"""
+    recommendations = []
+    
+    successful_methods = [method for method, result in extraction_results.items() if result['success']]
+    
+    if not successful_methods:
+        recommendations.extend([
+            "🚨 所有提取方法均失败，建议:",
+            "1. 使用Microsoft Word打开文档，另存为.txt格式",
+            "2. 检查文档是否包含复杂的图片、表格或特殊格式",
+            "3. 尝试复制文档内容，直接粘贴到评估平台的文本框中",
+            "4. 检查文档是否损坏或使用了不兼容的格式"
+        ])
+    elif len(successful_methods) == 1:
+        best_method = successful_methods[0]
+        best_result = extraction_results[best_method]
+        extraction_ratio = best_result['length'] / file_size * 100 if file_size > 0 else 0
+        
+        if extraction_ratio < 5:
+            recommendations.extend([
+                f"⚠️ 提取率较低 ({extraction_ratio:.1f}%)，建议:",
+                "1. 文档可能包含大量图片或表格，提取的主要是文本内容",
+                "2. 使用Word另存为.txt格式可能获得更好效果",
+                "3. 检查提取的内容是否包含主要信息"
+            ])
+        elif extraction_ratio < 15:
+            recommendations.append("✅ 提取成功，但内容相对较少，建议检查是否提取了主要信息")
+        else:
+            recommendations.append("✅ 提取成功，内容丰富，可以正常使用")
+    else:
+        recommendations.append("✅ 多种方法提取成功，文档处理良好")
+    
+    # Cloud deployment specific recommendations
+    recommendations.extend([
+        "",
+        "💡 云环境部署建议:",
+        "1. 如果在云端遇到问题，优先使用.txt格式",
+        "2. 保持文档内容简洁，避免过于复杂的格式",
+        "3. 定期验证文档处理功能是否正常"
+    ])
+    
+    return recommendations
+
+@app.post("/api/enhanced-document-processing")
+async def enhanced_document_processing(
+    requirement_file: UploadFile = File(None),
+    requirement_text: str = Form(None)
+):
+    """
+    Enhanced document processing with cloud compatibility diagnostics
+    """
+    try:
+        result = {
+            "document_processing": {},
+            "cloud_compatibility": {},
+            "performance_metrics": {},
+            "recommendations": []
+        }
+        
+        if requirement_file and requirement_file.filename:
+            # Process file with enhanced diagnostics
+            start_time = time.time()
+            
+            try:
+                # Check system environment
+                result["cloud_compatibility"] = {
+                    "python_docx_available": True,
+                    "zipfile_available": True,
+                    "xml_parser_available": True,
+                    "temp_file_access": True
+                }
+                
+                # Test dependencies
+                try:
+                    from docx import Document
+                    result["cloud_compatibility"]["python_docx_available"] = True
+                except ImportError:
+                    result["cloud_compatibility"]["python_docx_available"] = False
+                
+                try:
+                    import zipfile
+                    import xml.etree.ElementTree as ET
+                    result["cloud_compatibility"]["zipfile_available"] = True
+                    result["cloud_compatibility"]["xml_parser_available"] = True
+                except ImportError:
+                    result["cloud_compatibility"]["zipfile_available"] = False
+                    result["cloud_compatibility"]["xml_parser_available"] = False
+                
+                # Test temp file access
+                try:
+                    with tempfile.NamedTemporaryFile(delete=True) as test_tmp:
+                        test_tmp.write(b"test")
+                        result["cloud_compatibility"]["temp_file_access"] = True
+                except Exception:
+                    result["cloud_compatibility"]["temp_file_access"] = False
+                
+                # Process document
+                processed_content = await process_uploaded_document_improved(requirement_file)
+                
+                processing_time = time.time() - start_time
+                
+                result["document_processing"] = {
+                    "status": "success" if not processed_content.startswith("错误") else "error",
+                    "filename": requirement_file.filename,
+                    "file_size": len(await requirement_file.read()),  # Read size for metrics
+                    "content_length": len(processed_content),
+                    "content_preview": processed_content[:300] + "..." if len(processed_content) > 300 else processed_content,
+                    "processing_time": processing_time
+                }
+                
+                # Reset file position after reading size
+                await requirement_file.seek(0)
+                
+                result["performance_metrics"] = {
+                    "processing_time_seconds": processing_time,
+                    "extraction_rate": "fast" if processing_time < 2 else "normal" if processing_time < 5 else "slow",
+                    "extraction_ratio": (len(processed_content) / result["document_processing"]["file_size"] * 100) if result["document_processing"]["file_size"] > 0 else 0
+                }
+                
+                # Generate recommendations
+                if result["document_processing"]["status"] == "error":
+                    result["recommendations"].extend([
+                        "🚨 文档处理失败，建议:",
+                        "1. 转换为.txt格式重新上传",
+                        "2. 检查文档是否损坏",
+                        "3. 使用文本内容直接粘贴方式"
+                    ])
+                elif result["performance_metrics"]["extraction_ratio"] < 5:
+                    result["recommendations"].extend([
+                        "⚠️ 提取率较低，建议:",
+                        "1. 检查文档是否主要包含图片或表格",
+                        "2. 考虑使用Word转换为纯文本格式",
+                        "3. 验证提取的内容是否包含关键信息"
+                    ])
+                else:
+                    result["recommendations"].append("✅ 文档处理成功，可以正常使用")
+                
+                # Cloud-specific recommendations
+                if not all(result["cloud_compatibility"].values()):
+                    result["recommendations"].extend([
+                        "",
+                        "🌐 云环境兼容性问题:",
+                        "1. 某些依赖库可能不可用",
+                        "2. 建议使用.txt格式作为备选方案",
+                        "3. 联系管理员检查服务器配置"
+                    ])
+                
+            except Exception as e:
+                result["document_processing"] = {
+                    "status": "error",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                }
+        
+        elif requirement_text:
+            result["document_processing"] = {
+                "status": "success",
+                "source": "text_input",
+                "content_length": len(requirement_text),
+                "content_preview": requirement_text[:300] + "..." if len(requirement_text) > 300 else requirement_text
+            }
+            
+            result["recommendations"].append("✅ 文本内容处理成功")
+        
+        else:
+            result["document_processing"] = {
+                "status": "error",
+                "error": "未提供文件或文本内容"
+            }
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Enhanced document processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"增强文档处理失败: {str(e)}")
 
 if __name__ == "__main__":
     import sys

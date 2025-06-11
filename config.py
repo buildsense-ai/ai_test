@@ -39,10 +39,10 @@ APP_VERSION = "4.0.0"
 DEBUG_MODE = False
 
 # Coze API Configuration (Updated with working credentials)
-COZE_API_KEY = "pat_DiraOZEjagK8c6NNPJKionQsCj99zZduVyGkYO8YojolSQ8WAjBdF2CgbXNLMaFi"  # New working token
-COZE_API_TOKEN = "pat_DiraOZEjagK8c6NNPJKionQsCj99zZduVyGkYO8YojolSQ8WAjBdF2CgbXNLMaFi"  # For compatibility
-COZE_API_BASE_URL = "https://api.coze.cn"  # Using CN base URL
-COZE_API_BASE = "https://api.coze.cn"  # For compatibility
+COZE_API_TOKEN = "pat_DiraOZEjagK8c6NNPJKionQsCj99zZduVyGkYO8YojolSQ8WAjBdF2CgbXNLMaFi"  # Primary token
+COZE_API_KEY = COZE_API_TOKEN  # For SDK compatibility - always same as token
+COZE_API_BASE_URL = "https://api.coze.cn"  # Primary base URL
+COZE_API_BASE = COZE_API_BASE_URL  # For compatibility - always same as base URL
 
 # Default Bot/Agent IDs (Updated with working bot)
 DEFAULT_COZE_BOT_ID = "7498244859505999924"  # New working bot ID
