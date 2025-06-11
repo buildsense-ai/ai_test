@@ -91,6 +91,37 @@ pip install --force-reinstall python-docx
 
 ---
 
+## 🚨 新发现问题与修复 (最新)
+
+### 问题 #7: API配置JSON嵌套解析错误
+
+**症状:**
+```
+ERROR: API config parsing failed: cannot access local variable 'json' where it is not associated with a value
+Original config: {"type":"custom-api","url":"...","headers":{"Content-Type":"application/json","type":"custom-api",...}}
+```
+
+**根本原因:** 用户在"请求头"字段中误粘贴了完整的API配置对象，导致JSON结构嵌套错误
+
+**修复方案:**
+1. **后端增强解析逻辑**: 添加4层策略检测和修复嵌套配置
+2. **前端用户指导**: 增加警告文案和输入验证
+3. **实时检测**: 添加粘贴事件监听，自动提取正确的headers
+4. **错误分类**: 区分JSON格式错误、配置验证错误等不同异常类型
+
+**已实施修复:**
+✅ 后端API配置解析逻辑增强 (4种修复策略)  
+✅ 前端headers字段验证和警告系统  
+✅ 自动检测和修复错误配置粘贴  
+✅ 用户界面改进，增加明确指导文案  
+
+**验证结果:** 
+- 修复了嵌套JSON配置导致的解析失败
+- 增强了用户体验，减少配置错误
+- 提供实时反馈和自动修复功能
+
+---
+
 ## 🚨 重大问题记录与解决方案
 
 ### 1. 前端JSON数据结构解析错误 ⭐ **最高优先级 - 已解决**

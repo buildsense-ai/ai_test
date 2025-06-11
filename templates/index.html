@@ -827,13 +827,15 @@
                         <div id="customApiConfig" class="config-section" style="display: none;">
                             <h6><i class="fas fa-code"></i> 自定义 API 配置</h6>
                             <div class="alert-warning-compact">
-                                <i class="fas fa-code"></i> URL: https://api.openai.com/v1/chat/completions
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <strong>重要：</strong>请分别填写各个字段，不要在"请求头"中粘贴完整配置！
                             </div>
                             <div class="row">
                                 <div class="col-md-8">
                                     <label for="apiUrl" class="form-label">API URL *</label>
                                     <input type="url" class="form-control" id="apiUrl" name="apiUrl"
                                         placeholder="https://api.example.com/chat">
+                                    <small class="text-muted">示例: https://api.openai.com/v1/chat/completions</small>
                                 </div>
                                 <div class="col-md-4">
                                     <label for="apiMethod" class="form-label">HTTP方法</label>
@@ -849,6 +851,11 @@
                                     <label for="apiHeaders" class="form-label">请求头 (JSON格式)</label>
                                     <textarea class="form-control" id="apiHeaders" name="apiHeaders" rows="2"
                                         placeholder='{"Authorization": "Bearer your-token"}'></textarea>
+                                    <small class="text-muted">
+                                        <i class="fas fa-info-circle"></i>
+                                        <strong>注意：</strong>仅填写请求头信息，如认证token等。不要粘贴完整的API配置！
+                                        <br>正确示例: {"Authorization": "Bearer sk-...", "X-API-Key": "your-key"}
+                                    </small>
                                 </div>
                             </div>
                         </div>
@@ -1102,6 +1109,13 @@
             document.getElementById('autoMode').addEventListener('change', toggleEvaluationMode);
             document.getElementById('manualMode').addEventListener('change', toggleEvaluationMode);
             document.getElementById('dynamicMode').addEventListener('change', toggleEvaluationMode);
+
+            // Add headers validation for custom API config
+            const apiHeadersField = document.getElementById('apiHeaders');
+            if (apiHeadersField) {
+                apiHeadersField.addEventListener('input', validateApiHeaders);
+                apiHeadersField.addEventListener('paste', handleHeadersPaste);
+            }
 
             // Initialize evaluation mode (don't create scenarios yet)
             toggleEvaluationMode();
@@ -1747,9 +1761,22 @@
                 let headers = { 'Content-Type': 'application/json' };
                 if (headersText.trim()) {
                     try {
-                        headers = { ...headers, ...JSON.parse(headersText) };
+                        const parsedHeaders = JSON.parse(headersText);
+
+                        // Validate that it's actually headers, not a full config
+                        const suspiciousKeys = ['type', 'url', 'method', 'timeout', 'agentId', 'botId'];
+                        const foundSuspicious = suspiciousKeys.filter(key => key in parsedHeaders);
+
+                        if (foundSuspicious.length > 0) {
+                            throw new Error(`请求头中包含配置字段 "${foundSuspicious.join(', ')}"，请只填写请求头信息（如Authorization等）`);
+                        }
+
+                        headers = { ...headers, ...parsedHeaders };
                     } catch (e) {
-                        throw new Error('请求头格式错误，请使用有效的 JSON 格式');
+                        if (e.message.includes('配置字段')) {
+                            throw e; // Re-throw our custom validation error
+                        }
+                        throw new Error('请求头格式错误，请使用有效的 JSON 格式：{"Authorization": "Bearer token"}');
                     }
                 }
 
@@ -2871,6 +2898,88 @@
                 controller.abort();
             }, timeoutMs);
             return controller.signal;
+        }
+
+        // Validate API headers input to prevent common user errors
+        function validateApiHeaders() {
+            const apiHeadersField = document.getElementById('apiHeaders');
+            const value = apiHeadersField.value.trim();
+
+            if (!value) return; // Empty is okay
+
+            try {
+                const parsed = JSON.parse(value);
+
+                // Check if user pasted full config instead of just headers
+                if (parsed && typeof parsed === 'object') {
+                    const suspiciousKeys = ['type', 'url', 'method', 'timeout', 'agentId', 'botId'];
+                    const foundSuspicious = suspiciousKeys.filter(key => key in parsed);
+
+                    if (foundSuspicious.length > 0) {
+                        showHeadersWarning(`检测到配置字段 "${foundSuspicious.join(', ')}"，请只填写请求头信息！`);
+                        return false;
+                    }
+                }
+
+                // Clear any previous warnings
+                clearHeadersWarning();
+                return true;
+            } catch (e) {
+                showHeadersWarning('请输入有效的JSON格式');
+                return false;
+            }
+        }
+
+        // Handle paste events to detect full config paste
+        function handleHeadersPaste(event) {
+            setTimeout(() => {
+                const apiHeadersField = document.getElementById('apiHeaders');
+                const value = apiHeadersField.value.trim();
+
+                // Check if pasted content looks like a full config
+                if (value.includes('"type"') && value.includes('"url"') && value.includes('"method"')) {
+                    showHeadersWarning('⚠️ 检测到完整配置！请分别填写各个字段，不要在此处粘贴完整配置。');
+
+                    // Try to extract just the headers part
+                    try {
+                        const parsed = JSON.parse(value);
+                        if (parsed.headers && typeof parsed.headers === 'object') {
+                            apiHeadersField.value = JSON.stringify(parsed.headers, null, 2);
+                            showHeadersWarning('✅ 已自动提取请求头部分，请检查并确认内容正确。');
+                        } else {
+                            apiHeadersField.value = '{"Authorization": "Bearer your-token"}';
+                            showHeadersWarning('❌ 无法提取请求头，已重置为示例格式，请重新填写。');
+                        }
+                    } catch (e) {
+                        apiHeadersField.value = '{"Authorization": "Bearer your-token"}';
+                        showHeadersWarning('❌ 粘贴内容格式错误，已重置为示例格式，请重新填写。');
+                    }
+                }
+            }, 100); // Small delay to allow paste to complete
+        }
+
+        // Show warning message for headers field
+        function showHeadersWarning(message) {
+            const apiHeadersField = document.getElementById('apiHeaders');
+            let warningDiv = document.getElementById('headers-warning');
+
+            if (!warningDiv) {
+                warningDiv = document.createElement('div');
+                warningDiv.id = 'headers-warning';
+                warningDiv.className = 'alert alert-warning mt-2 mb-0';
+                apiHeadersField.parentNode.appendChild(warningDiv);
+            }
+
+            warningDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
+            warningDiv.style.display = 'block';
+        }
+
+        // Clear warning message for headers field
+        function clearHeadersWarning() {
+            const warningDiv = document.getElementById('headers-warning');
+            if (warningDiv) {
+                warningDiv.style.display = 'none';
+            }
         }
 
         // New function for toggling sections with display:none/block

@@ -1749,41 +1749,102 @@ async def evaluate_agent_with_file(
             
             # Debug: log the received configuration structure
             print(f"🔍 Received API config structure: {json.dumps(api_config_dict, indent=2)}")
+            logger.info(f"🔍 Received API config: {api_config_dict}")
             
-            # Check if the config is wrapped in an extra layer (common frontend issue)
+            # Enhanced data cleaning for common frontend issues
             if isinstance(api_config_dict, dict):
-                # Look for common wrapping patterns
+                # Strategy 1: Look for common wrapping patterns
                 if 'config' in api_config_dict and isinstance(api_config_dict['config'], dict):
                     print("⚠️ Detected config wrapped in 'config' key, unwrapping...")
                     api_config_dict = api_config_dict['config']
-                elif 'headers' in api_config_dict and 'url' in api_config_dict.get('headers', {}):
-                    print("⚠️ Detected config wrapped in 'headers' key, unwrapping...")
-                    api_config_dict = api_config_dict['headers']
                 elif 'api_config' in api_config_dict and isinstance(api_config_dict['api_config'], dict):
                     print("⚠️ Detected config wrapped in 'api_config' key, unwrapping...")
                     api_config_dict = api_config_dict['api_config']
-            
-            # Additional data cleaning for common frontend issues
-            if isinstance(api_config_dict, dict):
-                # Ensure timeout is an integer
+                
+                # Strategy 2: Fix the nested headers issue (common user error)
+                if 'headers' in api_config_dict and isinstance(api_config_dict['headers'], dict):
+                    headers = api_config_dict['headers']
+                    
+                    # Check if user pasted entire config into headers field
+                    if 'url' in headers and 'method' in headers and 'type' in headers:
+                        print("⚠️ Detected full config pasted in headers field, extracting...")
+                        # The real config is nested in headers, extract it
+                        real_config = headers.copy()
+                        
+                        # Clean the nested headers if it exists
+                        if 'headers' in real_config and isinstance(real_config['headers'], dict):
+                            real_config['headers'] = real_config['headers']
+                        else:
+                            real_config['headers'] = {'Content-Type': 'application/json'}
+                        
+                        api_config_dict = real_config
+                        print(f"✅ Extracted real config from nested headers: {api_config_dict['type']}")
+                    
+                    # Check for duplicate nested structure in headers
+                    elif any(key in headers for key in ['type', 'url', 'method', 'timeout']):
+                        print("⚠️ Detected config properties mixed in headers, cleaning...")
+                        # Extract only valid header properties
+                        valid_headers = {}
+                        for key, value in headers.items():
+                            if key.lower() in ['authorization', 'content-type', 'user-agent', 'accept', 'x-api-key']:
+                                valid_headers[key] = value
+                        
+                        # If no valid headers found, use default
+                        if not valid_headers:
+                            valid_headers = {'Content-Type': 'application/json'}
+                        
+                        api_config_dict['headers'] = valid_headers
+                        print(f"✅ Cleaned headers: {valid_headers}")
+                
+                # Strategy 3: Ensure required fields and proper data types
                 if 'timeout' in api_config_dict:
                     try:
                         api_config_dict['timeout'] = int(api_config_dict['timeout'])
                     except (ValueError, TypeError):
                         api_config_dict['timeout'] = 30
+                        print("⚠️ Invalid timeout value, defaulting to 30 seconds")
                 
                 # Ensure headers is a dictionary
-                if 'headers' in api_config_dict and not isinstance(api_config_dict['headers'], dict):
-                    print(f"⚠️ Invalid headers format: {type(api_config_dict['headers'])}, resetting to empty dict")
-                    api_config_dict['headers'] = {}
+                if 'headers' not in api_config_dict or not isinstance(api_config_dict['headers'], dict):
+                    print(f"⚠️ Missing or invalid headers, setting default")
+                    api_config_dict['headers'] = {'Content-Type': 'application/json'}
+                
+                # Strategy 4: Validate required fields based on type
+                config_type = api_config_dict.get('type', '')
+                if config_type == 'custom-api':
+                    if 'url' not in api_config_dict:
+                        raise ValueError("Custom API configuration missing required 'url' field")
+                    if 'method' not in api_config_dict:
+                        api_config_dict['method'] = 'POST'
+                        print("⚠️ Missing method, defaulting to POST")
+                elif config_type in ['coze-agent', 'coze-bot']:
+                    if 'url' not in api_config_dict:
+                        # Set default Coze URL based on type
+                        if config_type == 'coze-agent':
+                            api_config_dict['url'] = 'https://api.coze.cn/open_api/v2/chat'
+                        else:
+                            api_config_dict['url'] = 'https://api.coze.cn/open_api/v2/chat'
+                        print(f"⚠️ Missing URL for {config_type}, using default")
             
             print(f"🔧 Cleaned API config: {json.dumps(api_config_dict, indent=2)}")
             
             api_config = APIConfig(**api_config_dict)
+            logger.info(f"✅ API config parsed successfully: {api_config.type}")
+        except json.JSONDecodeError as je:
+            error_msg = f"JSON格式错误: {str(je)}"
+            logger.error(f"❌ JSON parsing failed: {error_msg}")
+            logger.error(f"❌ Original config string: {agent_api_config}")
+            raise HTTPException(status_code=400, detail=f"API配置JSON格式错误: {error_msg}")
+        except ValueError as ve:
+            error_msg = str(ve)
+            logger.error(f"❌ Config validation failed: {error_msg}")
+            logger.error(f"❌ Original config string: {agent_api_config}")
+            raise HTTPException(status_code=400, detail=f"API配置验证失败: {error_msg}")
         except Exception as e:
-            print(f"❌ API config parsing failed: {str(e)}")
-            print(f"❌ Original config string: {agent_api_config}")
-            raise HTTPException(status_code=400, detail=f"API配置解析失败: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"❌ API config parsing failed: {error_msg}")
+            logger.error(f"❌ Original config string: {agent_api_config}")
+            raise HTTPException(status_code=400, detail=f"API配置解析失败: {error_msg}")
         
         # Handle requirement document
         requirement_context = ""
