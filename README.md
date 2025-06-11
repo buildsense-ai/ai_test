@@ -77,6 +77,23 @@ python main.py
 
 > 📖 **详细部署指南**: 查看 [DEPLOYMENT.md](DEPLOYMENT.md) 获取完整的部署说明和配置指南。
 
+### 🔧 故障排除
+
+如果遇到 `ERR_EMPTY_RESPONSE` 错误，请使用调试脚本：
+```bash
+# 1. 编辑调试脚本中的API配置和服务器URL
+vim debug_api_test.py
+
+# 2. 运行调试测试
+python debug_api_test.py
+```
+
+调试脚本会测试：
+- ✅ 服务器健康状态 (`/health` 端点)
+- 🔄 API直接调用 (`/api/evaluate-agent-dynamic` 端点)  
+- 📊 响应大小和处理时间监控
+- 🐛 详细错误信息和堆栈跟踪
+
 ## 🎯 使用场景
 
 ### 企业 AI 质量评估

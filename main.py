@@ -93,7 +93,11 @@ try:
 except ImportError:
     DOCUMENT_PROCESSING_AVAILABLE = False
 
-app = FastAPI(title="AI Agent Evaluation Platform", version="3.0.0")
+app = FastAPI(title="AI Agent Evaluation Platform", version="4.0.0")
+
+# Add response compression middleware
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Create static directory if it doesn't exist
 static_dir = "static"
@@ -1689,6 +1693,30 @@ def generate_enhanced_recommendations(evaluation_results: List[Dict], user_perso
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+@app.get("/health")
+async def health_check():
+    """Simple health check endpoint for debugging"""
+    try:
+        memory_usage = check_memory_usage()
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "memory_usage": memory_usage,
+            "version": "4.0.0",
+            "features": {
+                "database": PYMYSQL_AVAILABLE,
+                "coze_sdk": COZE_SDK_AVAILABLE,
+                "document_processing": DOCUMENT_PROCESSING_AVAILABLE,
+                "memory_monitoring": PSUTIL_AVAILABLE
+            }
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
 @app.post("/api/evaluate-agent-with-file", response_model=EvaluationResponse)
 async def evaluate_agent_with_file(
     agent_api_config: str = Form(...),
@@ -2174,19 +2202,103 @@ async def _perform_dynamic_evaluation_internal(
             print(f"💬 对话轮次: {total_conversations} 轮")
             print(f"🎭 用户画像: {user_persona_info.get('user_persona', {}).get('role', '未知角色')}")
             
-            # Auto-save to database if enabled
+            # Monitor response size and optimize if needed
+            import json
+            import sys
+            response_json = json.dumps(response_data, ensure_ascii=False, default=str)
+            response_size_mb = sys.getsizeof(response_json) / (1024 * 1024)
+            
+            logger.info(f"📊 Response size: {response_size_mb:.2f} MB")
+            print(f"📊 Response size: {response_size_mb:.2f} MB")
+            
+            # If response is too large (>50MB), optimize it
+            if response_size_mb > 50:
+                logger.warning(f"⚠️ Large response detected ({response_size_mb:.2f} MB), optimizing...")
+                print(f"⚠️ Large response detected ({response_size_mb:.2f} MB), optimizing...")
+                
+                # Reduce conversation history verbosity for large responses
+                for record in response_data.get("conversation_records", []):
+                    for turn in record.get("conversation_history", []):
+                        # Truncate very long AI responses
+                        if len(turn.get("ai_response", "")) > 5000:
+                            turn["ai_response"] = turn["ai_response"][:5000] + "\n...[响应已截断，完整内容请查看详细报告]"
+                        
+                        # Truncate very long evaluation explanations
+                        for key, value in record.get("evaluation_scores_with_explanations", {}).items():
+                            if isinstance(value, dict) and len(str(value.get("detailed_analysis", ""))) > 2000:
+                                value["detailed_analysis"] = str(value["detailed_analysis"])[:2000] + "...[详细分析已截断]"
+            
+            # Store the response before attempting database save
+            final_response = response_data.copy()
+            
+            # Auto-save to database if enabled (non-blocking)
             if config.ENABLE_AUTO_SAVE:
                 try:
-                    session_id = await save_evaluation_to_database(response_data, requirement_context)
-                    if session_id:
-                        response_data["database_session_id"] = session_id
-                        print(f"💾 评估结果已自动保存到数据库，会话ID: {session_id}")
-                    else:
-                        print("⚠️ 数据库自动保存失败，但评估结果仍然可用")
+                    # Use asyncio.create_task to make database save non-blocking
+                    async def save_to_db():
+                        try:
+                            session_id = await save_evaluation_to_database(response_data, requirement_context)
+                            if session_id:
+                                print(f"💾 评估结果已自动保存到数据库，会话ID: {session_id}")
+                            else:
+                                print("⚠️ 数据库自动保存失败，但评估结果仍然可用")
+                        except Exception as e:
+                            print(f"⚠️ 数据库保存异常，但不影响评估结果: {str(e)}")
+                    
+                    # Create background task for database save
+                    asyncio.create_task(save_to_db())
+                    
+                    # Attempt quick database save with timeout
+                    try:
+                        session_id = await asyncio.wait_for(
+                            save_evaluation_to_database(response_data, requirement_context),
+                            timeout=5.0  # 5 second timeout for database save
+                        )
+                        if session_id:
+                            final_response["database_session_id"] = session_id
+                            print(f"💾 评估结果已自动保存到数据库，会话ID: {session_id}")
+                    except asyncio.TimeoutError:
+                        print("⚠️ 数据库保存超时，已创建后台任务继续保存")
+                    except Exception as e:
+                        print(f"⚠️ 数据库保存异常，但不影响评估结果: {str(e)}")
+                        
                 except Exception as e:
-                    print(f"⚠️ 数据库保存异常，但不影响评估结果: {str(e)}")
+                    print(f"⚠️ 数据库保存模块异常: {str(e)}")
             
-            return response_data
+            # Final response validation and optimization
+            try:
+                # Ensure the response can be JSON serialized
+                test_json = json.dumps(final_response, ensure_ascii=False, default=str)
+                final_size_mb = sys.getsizeof(test_json) / (1024 * 1024)
+                logger.info(f"✅ Final response ready: {final_size_mb:.2f} MB")
+                print(f"✅ Final response ready: {final_size_mb:.2f} MB")
+                
+                # Add response metadata
+                final_response["response_metadata"] = {
+                    "size_mb": round(final_size_mb, 2),
+                    "generation_time": datetime.now().isoformat(),
+                    "optimized": response_size_mb > 50,
+                    "version": "4.0"
+                }
+                
+                return final_response
+                
+            except Exception as json_error:
+                logger.error(f"❌ Response serialization failed: {str(json_error)}")
+                print(f"❌ Response serialization failed: {str(json_error)}")
+                
+                # Return a minimal response if serialization fails
+                return {
+                    "evaluation_summary": {
+                        "overall_score_100": round(overall_score_100, 2),
+                        "total_scenarios": len(evaluation_results),
+                        "error": "Full response too large, providing summary only"
+                    },
+                    "conversation_records": [],
+                    "recommendations": ["系统建议：响应过大，请查看详细报告"],
+                    "timestamp": datetime.now().isoformat(),
+                    "error_info": "Response optimization failed"
+                }
             
         except Exception as e:
             logger.error(f"❌ Response data assembly failed: {str(e)}")
