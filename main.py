@@ -697,6 +697,7 @@ async def call_deepseek_api(prompt: str, max_retries: int = 2) -> str:
 
 async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None, use_raw_message: bool = False) -> str:
     """Call AI Agent API - supports Coze, Dify, and custom APIs with conversation continuity"""
+    import json  # Import json module to fix scope issues
     try:
         # 📝 Debug log for message processing mode
         message_preview = message[:80] + "..." if len(message) > 80 else message
@@ -719,15 +720,30 @@ async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_ma
             
             return response_content
         else:
-            # Generic API support
+            # Enhanced generic API support with auto-detection of API formats
             headers = api_config.headers.copy()
             headers.setdefault("Content-Type", "application/json")
             
-            # Use appropriate payload field based on raw message mode
-            if use_raw_message:
-                payload = {"input": message, "question": message, "query": message}  # Raw user input fields
+            # Auto-detect API format based on URL patterns
+            session_id = getattr(conversation_manager, 'conversation_id', '') if conversation_manager else ""
+            
+            # Specialized handling for engineering supervision API (cpolar format)
+            if "/ask" in api_config.url or "cpolar" in api_config.url:
+                print(f"🔧 Detected engineering supervision API format")
+                payload = {
+                    "question": message,
+                    "session_id": session_id or f"eval-{int(time.time())}",
+                    "context": ""
+                }
+            # Standard custom API formats
             else:
-                payload = {"message": message, "query": message}  # Enhanced message fields
+                # Use appropriate payload field based on raw message mode
+                if use_raw_message:
+                    payload = {"input": message, "question": message, "query": message}  # Raw user input fields
+                else:
+                    payload = {"message": message, "query": message}  # Enhanced message fields
+            
+            print(f"📤 Custom API payload: {json.dumps(payload, ensure_ascii=False)[:200]}...")
             
             async with httpx.AsyncClient(timeout=httpx.Timeout(api_config.timeout)) as client:
                 response = await client.request(
@@ -737,30 +753,51 @@ async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_ma
                     json=payload
                 )
                 
+                print(f"📥 Custom API response status: {response.status_code}")
+                
                 if response.status_code == 200:
                     result = response.json()
-                    # Try common response paths
+                    print(f"📋 Custom API response preview: {json.dumps(result, ensure_ascii=False)[:300]}...")
+                    
+                    # Try common response paths with priority for engineering supervision format
                     raw_response = ""
-                    if "response" in result:
-                        raw_response = result["response"]
-                    elif "answer" in result:
+                    if "answer" in result:  # Primary field for engineering supervision API
                         raw_response = result["answer"]
+                    elif "response" in result:
+                        raw_response = result["response"]
                     elif "message" in result:
                         raw_response = result["message"]
+                    elif "reply" in result:
+                        raw_response = result["reply"]
+                    elif "content" in result:
+                        raw_response = result["content"]
                     else:
-                        raw_response = str(result)
+                        # Fallback: look for any string value in the response
+                        for key, value in result.items():
+                            if isinstance(value, str) and len(value) > 10:
+                                raw_response = value
+                                break
+                        if not raw_response:
+                            raw_response = str(result)
                     
                     # 🔧 UNIVERSAL FIX: Apply plugin extraction to generic API responses too
                     if raw_response:
                         cleaned_response = clean_ai_response(raw_response)
-                        if cleaned_response:
+                        if cleaned_response and cleaned_response != raw_response:
                             print(f"🧹 通用API响应经过插件提取处理: {cleaned_response[:100]}...")
                             return cleaned_response
+                        print(f"✅ Custom API response: {raw_response[:100]}...")
                         return raw_response
                     else:
                         return "Empty response from API"
                 else:
-                    return f"API调用失败: {response.status_code}"
+                    error_message = f"API调用失败: {response.status_code}"
+                    try:
+                        error_detail = response.json()
+                        error_message += f" - {error_detail}"
+                    except:
+                        error_message += f" - {response.text}"
+                    return error_message
                     
     except Exception as e:
         print(f"❌ AI Agent API调用异常: {str(e)}")
@@ -2036,19 +2073,20 @@ async def _perform_dynamic_evaluation_internal(
         print("🚀============================================================🚀")
         
         # Parse API configuration
+        import json as json_module  # Import locally to avoid scope issues
         try:
             # ⭐ Security: Validate input length
             if len(agent_api_config) > 50000:  # 50KB limit
                 raise HTTPException(status_code=413, detail="API配置过长，请检查配置内容")
             
-            api_config_dict = json.loads(agent_api_config)
+            api_config_dict = json_module.loads(agent_api_config)
             
             # ⭐ Security: Validate API URL if present
             if 'url' in api_config_dict and not validate_api_url(api_config_dict['url']):
                 raise HTTPException(status_code=400, detail="不安全的API URL")
             
             # Debug: log the received configuration structure
-            print(f"🔍 Received API config structure: {json.dumps(api_config_dict, indent=2)}")
+            print(f"🔍 Received API config structure: {json_module.dumps(api_config_dict, indent=2)}")
             logger.info(f"🔍 Received API config: {api_config_dict}")
             
             # Check if the config is wrapped in an extra layer (common frontend issue)
@@ -2078,7 +2116,7 @@ async def _perform_dynamic_evaluation_internal(
                     print(f"⚠️ Invalid headers format: {type(api_config_dict['headers'])}, resetting to empty dict")
                     api_config_dict['headers'] = {}
             
-            print(f"🔧 Cleaned API config: {json.dumps(api_config_dict, indent=2)}")
+            print(f"🔧 Cleaned API config: {json_module.dumps(api_config_dict, indent=2)}")
             
             api_config = APIConfig(**api_config_dict)
             logger.info(f"✅ API config parsed successfully: {api_config.type}")
@@ -2119,7 +2157,7 @@ async def _perform_dynamic_evaluation_internal(
         try:
             if extracted_persona:
                 try:
-                    user_persona_info = json.loads(extracted_persona)
+                    user_persona_info = json_module.loads(extracted_persona)
                     logger.info(f"🎭 Using provided persona: {user_persona_info.get('user_persona', {}).get('role', '未知角色')}")
                     print(f"🎭 使用提取的用户画像: {user_persona_info.get('user_persona', {}).get('role', '未知角色')}")
                 except Exception as pe:
@@ -2264,9 +2302,8 @@ async def _perform_dynamic_evaluation_internal(
             print(f"🎭 用户画像: {user_persona_info.get('user_persona', {}).get('role', '未知角色')}")
             
             # Monitor response size and optimize if needed
-            import json
             import sys
-            response_json = json.dumps(response_data, ensure_ascii=False, default=str)
+            response_json = json_module.dumps(response_data, ensure_ascii=False, default=str)
             response_size_mb = sys.getsizeof(response_json) / (1024 * 1024)
             
             logger.info(f"📊 Response size: {response_size_mb:.2f} MB")

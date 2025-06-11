@@ -93,6 +93,58 @@ pip install --force-reinstall python-docx
 
 ## 🚨 新发现问题与修复 (最新)
 
+### 问题 #8: JSON模块作用域错误导致API配置解析失败 - 2024年12月19日
+
+**症状:**
+```
+ERROR: API配置解析失败: cannot access local variable 'json' where it is not associated with a value
+HTTP 400: {"detail":"API配置解析失败: cannot access local variable 'json' where it is not associated with a value"}
+```
+
+**根本原因:** 
+1. `_perform_dynamic_evaluation_internal` 函数中多处使用 `json.loads()` 和 `json.dumps()`
+2. 函数内部有局部的 `import json` 语句与全局导入产生作用域冲突
+3. 特别是在 line 2080 和 line 2258 附近的 json 调用出现 UnboundLocalError
+
+**影响范围:**
+- 动态评估模式下的API配置解析完全失败
+- 影响自定义API类型（包括工程监理智能问答系统）的配置解析
+- 导致400错误，阻止评估流程启动
+
+**修复方案:**
+1. **局部导入修复**: 在需要使用json的函数内部使用 `import json as json_module`
+2. **一致性修改**: 将所有相关的 `json.loads()` 改为 `json_module.loads()`
+3. **作用域隔离**: 避免局部变量名与模块名冲突
+
+**已实施修复:**
+```python
+# _perform_dynamic_evaluation_internal 函数中
+import json as json_module  # 避免作用域冲突
+
+# 所有JSON操作使用新别名
+api_config_dict = json_module.loads(agent_api_config)
+user_persona_info = json_module.loads(extracted_persona)
+response_json = json_module.dumps(response_data, ensure_ascii=False, default=str)
+```
+
+**同时增强自定义API支持:**
+1. **工程监理API格式支持**: 自动检测 `/ask` 端点，使用 `{"question": message, "session_id": session_id, "context": ""}` 格式
+2. **cpolar隧道自动识别**: 通过URL包含 "cpolar" 关键字自动应用工程监理API格式
+3. **响应解析增强**: 优先解析 `answer` 字段，支持工程监理智能问答系统的响应格式
+4. **会话管理**: 为自定义API添加session_id支持，确保对话连续性
+
+**验证结果:**
+- ✅ 修复了JSON模块作用域错误
+- ✅ 动态评估模式恢复正常
+- ✅ 自定义API配置解析成功
+- ✅ 工程监理智能问答系统完美集成
+- ✅ cpolar隧道API调用正常
+
+**部署注意事项:**
+确保重新启动服务器以应用JSON作用域修复。
+
+---
+
 ### 问题 #7: API配置JSON嵌套解析错误
 
 **症状:**
