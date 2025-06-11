@@ -722,7 +722,7 @@
             <div class="header">
                 <h1><i class="fas fa-brain"></i> AI Agent 自动化评估平台</h1>
                 <p class="lead">基于DeepSeek智能引擎的专业AI代理评估系统</p>
-                <p class="subtitle">支持多平台API • 文档智能解析 • 4维度评估框架 • 工作流兼容</p>
+                <p class="subtitle">支持多平台API • 文档智能解析 • 动态场景生成 • 4维度评估框架 • 4轮深度对话</p>
             </div>
 
             <!-- AI Type Selection - Collapsible -->
@@ -912,7 +912,7 @@
                     <!-- Dynamic Mode Section -->
                     <div id="dynamicModeSection">
                         <div class="alert-success-compact">
-                            <i class="fas fa-comments"></i> 上传需求文档，自动提取用户画像，生成2个测试场景
+                            <i class="fas fa-comments"></i> 上传需求文档，自动提取用户画像，通过DeepSeek API生成专属测试场景，进行4轮深度对话评估
                         </div>
 
                         <!-- File Upload -->
@@ -1585,7 +1585,7 @@
                     const response = await fetch('/api/evaluate-agent-dynamic', {
                         method: 'POST',
                         body: formData,
-                        signal: createTimeoutSignal(600000)  // 10 minutes timeout for dynamic evaluation
+                        signal: createTimeoutSignal(720000)  // 12 minutes timeout (AI conversation generation needs extra time)
                     });
 
                     if (!response.ok) {
@@ -1620,7 +1620,7 @@
                     const response = await fetch('/api/evaluate-agent-auto', {
                         method: 'POST',
                         body: formData,
-                        signal: createTimeoutSignal(480000)  // 8 minutes timeout for auto evaluation
+                        signal: createTimeoutSignal(600000)  // 10 minutes timeout for auto evaluation with AI conversations
                     });
 
                     if (!response.ok) {
@@ -1655,7 +1655,7 @@
                     const response = await fetch('/api/evaluate-agent', {
                         method: 'POST',
                         body: formData,
-                        signal: createTimeoutSignal(480000)  // 8 minutes timeout for manual evaluation
+                        signal: createTimeoutSignal(600000)  // 10 minutes timeout for manual evaluation with AI conversations
                     });
 
                     if (!response.ok) {

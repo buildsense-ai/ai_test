@@ -10,8 +10,8 @@ import json
 from datetime import datetime
 
 # Test configuration
-API_BASE_URL = "http://localhost:3005"  # Change this to your deployed URL
-TIMEOUT = 600  # 10 minutes timeout
+API_BASE_URL = "http://localhost:8000"  # Change this to your deployed URL
+TIMEOUT = 720  # 12 minutes timeout (AI-generated conversations need extra time)
 
 # Sample API configuration for testing
 SAMPLE_API_CONFIG = {

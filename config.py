@@ -18,10 +18,10 @@ DEFAULT_PORT = 8000
 DEFAULT_WORKERS = 1
 DEFAULT_LOG_LEVEL = "info"
 
-# API Timeout Settings (Increased to prevent timeout errors)
-DEFAULT_TIMEOUT = 60
-DEEPSEEK_TIMEOUT = 60  # Increased from 20 to 60 seconds
-COZE_TIMEOUT = 60
+# API Timeout Settings (Generous timeouts for AI-generated conversations)
+DEFAULT_TIMEOUT = 90
+DEEPSEEK_TIMEOUT = 90  # Increased for AI message generation
+COZE_TIMEOUT = 90
 
 # Document Processing Settings
 MAX_DOCUMENT_SIZE = 10 * 1024 * 1024  # 10MB
@@ -73,8 +73,8 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 MAX_INPUT_LENGTH = 100000  # 100KB for text inputs
 MAX_CONFIG_LENGTH = 50000  # 50KB for API configs
 MAX_FILENAME_LENGTH = 255
-EVALUATION_TIMEOUT = 480  # 8 minutes for evaluation
-DEFAULT_REQUEST_TIMEOUT = 120  # 2 minutes for individual API calls
+EVALUATION_TIMEOUT = 600  # 10 minutes for evaluation (AI conversation generation needs more time)
+DEFAULT_REQUEST_TIMEOUT = 150  # 2.5 minutes for individual API calls
 
 # File Upload Security
 ALLOWED_EXTENSIONS = {'.docx', '.pdf', '.txt'}
