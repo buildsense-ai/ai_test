@@ -584,11 +584,13 @@ class EvaluationRequest(BaseModel):
     coze_bot_id: Optional[str] = Field(default=None, description="Coze Bot ID for current implementation")
 
 class EvaluationDimensions(BaseModel):
-    """3-dimension evaluation framework from README"""
-    fuzzy_understanding: float = Field(..., description="模糊理解与追问能力")
+    """6-dimension evaluation framework from README"""
     answer_correctness: float = Field(..., description="回答准确性与专业性") 
-    persona_alignment: float = Field(..., description="用户适配度")
-    goal_alignment: Optional[float] = Field(default=None, description="目标对齐度")
+    persona_alignment: float = Field(..., description="用户匹配度")
+    goal_alignment: float = Field(..., description="目标对齐度")
+    specification_citation_accuracy: Optional[float] = Field(default=None, description="规范引用准确度")
+    fuzzy_understanding: Optional[float] = Field(default=None, description="模糊理解能力") 
+    multi_turn_support: Optional[float] = Field(default=None, description="多轮支持度")
 
 class EvaluationResponse(BaseModel):
     """Response structure matching README output format"""
@@ -601,6 +603,23 @@ class EvaluationResponse(BaseModel):
 # All constants are now accessed directly from config module
 
 print(f"✅ Configuration loaded from config.py - DeepSeek API configured")
+
+# Specification Query Default Constants
+SPECIFICATION_QUERY_DEFAULTS = {
+    "user_persona": {
+        "role": "工程项目现场监理工程师",
+        "experience_level": "有经验",
+        "communication_style": "专业直接",
+        "work_environment": "工程现场"
+    },
+    "usage_context": {
+        "business_domain": "工程项目现场监理",
+        "usage_scenario": "巡检或验收时，需自然语言提问以快速查询国家/地方规范与图纸说明"
+    }
+}
+
+# Add MAX_CONVERSATION_TURNS constant if not defined
+MAX_CONVERSATION_TURNS = 6
 
 # Conversation continuity management
 class ConversationManager:
@@ -640,6 +659,375 @@ class ConversationManager:
         if new_id and new_id != self.conversation_id:
             self.conversation_id = new_id
             print(f"🔗 更新对话ID: {new_id[:20]}...")
+
+async def generate_specification_query_scenarios(user_persona_info: Dict) -> List[Dict]:
+    """
+    Generate scenarios specifically for specification query project
+    Uses predefined scenarios for speed optimization
+    """
+    try:
+        # Get persona and context info
+        persona = user_persona_info.get("user_persona", {})
+        context = user_persona_info.get("usage_context", {})
+        
+        # Predefined scenarios for specification query (optimized for speed)
+        # Start with 1 scenario for testing purposes
+        scenarios = [
+            {
+                "title": "建筑工程规范查询",
+                "context": "工程项目现场监理工程师在施工现场发现质量问题，需要查询相关国家规范",
+                "user_profile": f"{persona.get('role', '监理工程师')}，{persona.get('experience_level', '有经验')}",
+                "business_domain": context.get("business_domain", "工程项目现场监理"),
+                "scenario_type": "technical_inquiry"
+            }
+        ]
+        
+        print(f"✅ 已生成 {len(scenarios)} 个规范查询场景")
+        return scenarios
+        
+    except Exception as e:
+        print(f"❌ 生成规范查询场景失败: {str(e)}")
+        # Fallback scenarios
+        return [
+            {
+                "title": "规范智能问答测试",
+                "context": "测试AI系统的规范查询能力",
+                "user_profile": "工程项目现场监理工程师",
+                "business_domain": "工程项目现场监理",
+                "scenario_type": "general_inquiry"
+            }
+        ]
+
+async def conduct_conversation_with_turn_control(
+    api_config: APIConfig, 
+    scenario: Dict, 
+    user_persona_info: Dict, 
+    use_raw_messages: bool = False,
+    is_tricky_test: bool = False
+) -> List[Dict]:
+    """
+    Conduct conversation with turn control for specification query
+    Enhanced to support 4-5 rounds with satisfaction detection
+    """
+    try:
+        print(f"🎯 开始场景对话: {scenario.get('title', '规范查询')}")
+        
+        conversation_history = []
+        conversation_manager = ConversationManager(api_config)
+        conversation_manager.start_new_conversation()
+        
+        # Enhanced conversation with 4-5 turns and satisfaction detection
+        max_turns = 5
+        satisfaction_indicators = [
+            "谢谢", "明白了", "清楚了", "了解了", "知道了", "好的", "没问题", 
+            "满意", "解决了", "够了", "足够", "可以了", "ok", "OK", "感谢"
+        ]
+        
+        for turn_num in range(max_turns):
+            try:
+                # Generate user message
+                if turn_num == 0:
+                    user_message = await generate_quick_initial_message(scenario, user_persona_info, is_tricky_test)
+                elif turn_num == 1:
+                    user_message = "请详细说明相关规范条文，并提供具体的技术要求。"
+                elif turn_num == 2:
+                    user_message = "有没有相关的施工注意事项和质量控制要点？"
+                elif turn_num == 3:
+                    user_message = "请补充说明验收标准和检测方法。"
+                else:
+                    user_message = "还有其他需要注意的规范要求吗？"
+                
+                # Call AI agent
+                ai_response = await call_ai_agent_api(
+                    api_config, user_message, conversation_manager, use_raw_messages
+                )
+                
+                # Record turn
+                conversation_history.append({
+                    "turn": turn_num + 1,
+                    "user_message": user_message,
+                    "ai_response": clean_ai_response(ai_response)
+                })
+                
+                print(f"  ✅ 对话轮次 {turn_num + 1} 完成")
+                
+                # Check for satisfaction indicators in AI response
+                ai_response_lower = ai_response.lower()
+                if turn_num >= 1:  # Only check after first turn
+                    # If AI asks clarifying questions, continue
+                    if any(indicator in ai_response for indicator in ["什么", "哪个", "如何", "怎么", "请问", "？", "?"]):
+                        continue
+                    
+                    # If response is very short and seems final
+                    if len(ai_response.strip()) < 50:
+                        print(f"  🔚 AI回复较短，可能已完成回答，在第 {turn_num + 1} 轮结束对话")
+                        break
+                
+                # Stop if we have at least 2 turns and this is a substantial conversation
+                if turn_num >= 3 and len(conversation_history) >= 4:
+                    print(f"  🔚 已完成 {turn_num + 1} 轮充分对话，结束")
+                    break
+                
+            except Exception as e:
+                print(f"  ❌ 对话轮次 {turn_num + 1} 失败: {str(e)}")
+                break
+        
+        print(f"🎉 场景对话完成，共 {len(conversation_history)} 轮")
+        return conversation_history
+        
+    except Exception as e:
+        print(f"❌ 对话执行失败: {str(e)}")
+        return []
+
+async def evaluate_conversation_specification_query(
+    conversation_history: List[Dict], 
+    scenario: Dict, 
+    requirement_context: str = "", 
+    user_persona_info: Dict = None
+) -> tuple:
+    """
+    Evaluate conversation specifically for specification query project
+    """
+    try:
+        print(f"📊 开始评估场景: {scenario.get('title', '规范查询')}")
+        
+        # Build evaluation context
+        conversation_text = "\n".join([
+            f"用户: {turn['user_message']}\nAI: {turn['ai_response']}" 
+            for turn in conversation_history
+        ])
+        
+        persona = user_persona_info.get("user_persona", {}) if user_persona_info else {}
+        context = user_persona_info.get("usage_context", {}) if user_persona_info else {}
+        
+        # Specification query specific evaluation dimensions
+        evaluation_dimensions = {
+            "answer_correctness": "回答准确性与专业性",
+            "persona_alignment": "用户匹配度",
+            "goal_alignment": "目标对齐度",
+            "specification_citation_accuracy": "规范引用准确度",
+            "fuzzy_understanding": "模糊理解能力",
+            "multi_turn_support": "多轮支持度"
+        }
+        
+        evaluation_scores = {}
+        detailed_explanations = {}
+        
+        # Evaluate each dimension
+        for dimension, dimension_name in evaluation_dimensions.items():
+            try:
+                eval_prompt = f"""
+你是对话质量评估专家。请根据下方对话内容，从"{dimension_name}"这个维度对AI的表现进行评分，满分100分。
+
+📘【场景信息】:
+- 场景标题: {scenario.get('title', 'N/A')}
+- 背景描述: {scenario.get('context', 'N/A')}
+- 用户角色: {persona.get('role', 'N/A')}
+
+🧾【对话内容】:
+{conversation_text}
+
+📏【评分标准】:
+- 90–100分: 表现优秀，完全满足该维度要求
+- 80–89分: 良好表现，略有提升空间
+- 60–79分: 基本达标，但存在明显不足
+- 40–59分: 有较大问题，影响用户体验
+- 0–39分: 表现失败，严重偏离该维度要求
+
+🧪【评分示例】:
+
+示例1（评分: 95）：
+- 维度: 回答准确性
+- 对话：
+  用户：施工时混凝土振捣的时间怎么控制？
+  AI：根据《GB50204-2015》第6.3.2条，普通混凝土振捣时间应控制在10-30秒之间。
+- 评价：引用规范准确，内容完整、专业。
+
+示例2（评分: 72）：
+- 维度: 回答准确性
+- 对话：
+  用户：钢筋搭接长度？
+  AI：钢筋搭接30公分就够了。
+- 评价：回答模糊，未引用具体标准，误导用户。
+
+📝【请填写】:
+评分：[0-100]
+理由：[基于维度和对话，说明你的判断依据]
+                """
+                
+                response = await call_deepseek_api_enhanced(eval_prompt, max_tokens=300, temperature=0.1)
+                
+                # Extract score and explanation
+                score = extract_score_from_response(response)
+                if score is None or score < 0 or score > 100:
+                    score = 75  # Default score
+                
+                evaluation_scores[dimension] = score
+                detailed_explanations[dimension] = {
+                    "score": score,
+                    "detailed_analysis": response,
+                    "full_response": response
+                }
+                
+                print(f"  ✅ {dimension_name}: {score:.1f}分")
+                
+            except Exception as e:
+                print(f"  ❌ 评估维度 {dimension_name} 失败: {str(e)}")
+                evaluation_scores[dimension] = 75  # Default score
+                detailed_explanations[dimension] = {
+                    "score": 75,
+                    "detailed_analysis": f"评估过程出现异常: {str(e)}",
+                    "full_response": f"评估异常: {str(e)}"
+                }
+        
+        # Calculate overall score
+        scenario_score = sum(evaluation_scores.values()) / len(evaluation_scores) if evaluation_scores else 75
+        
+        print(f"🎉 场景评估完成，综合得分: {scenario_score:.1f}/100")
+        
+        return evaluation_scores, detailed_explanations, scenario_score
+        
+    except Exception as e:
+        print(f"❌ 场景评估失败: {str(e)}")
+        # Return default scores
+        default_scores = {
+            "answer_correctness": 75,
+            "persona_alignment": 75,
+            "goal_alignment": 75
+        }
+        default_explanations = {
+            dim: {
+                "score": 75,
+                "detailed_analysis": f"评估异常: {str(e)}",
+                "full_response": f"评估过程出现错误: {str(e)}"
+            } for dim in default_scores.keys()
+        }
+        return default_scores, default_explanations, 75
+
+async def generate_ai_improvement_suggestions_for_programmers(
+    explanations: Dict, 
+    evaluation_summary: Dict
+) -> List[str]:
+    """
+    Generate AI-powered improvement suggestions specifically for programmers
+    """
+    try:
+        print("🤖 正在生成AI智能改进建议...")
+        
+        # Extract key information from explanations
+        dimension_scores = []
+        dimension_issues = []
+        
+        for dimension, explanation in explanations.items():
+            score = explanation.get('score', 75)
+            analysis = explanation.get('detailed_analysis', '')
+            
+            dimension_scores.append(f"{dimension}: {score}分")
+            if score < 80:  # Issues for scores below 80
+                dimension_issues.append(f"{dimension}: {analysis}")
+        
+        # Prepare prompt for DeepSeek
+        improvement_prompt = f"""评估概况:
+- 综合得分: {evaluation_summary.get('overall_score_100', 75)}/100分
+- 评估维度得分: {'; '.join(dimension_scores)}
+- 评估框架: {evaluation_summary.get('framework', '规范查询评估')}
+
+主要问题分析:
+{chr(10).join(dimension_issues) if dimension_issues else '总体表现良好'}
+
+请提供3-5条具体的技术改进建议，每条建议必须包含以下三个部分：
+1. 问题描述：明确指出需要改进的具体问题，特别是与提示词相关的问题
+2. 解决方案：提供具体可行的技术方案，包括具体的提示词优化建议
+3. 预期效果：说明改进后的预期效果
+
+重点关注以下方面：
+- 提示词结构和格式优化
+- 上下文管理和历史对话处理
+- 角色定义和任务指令的清晰度
+- 专业领域知识的引导方式
+- 多轮对话的连贯性维护
+- 错误处理和边界情况的提示词设计
+
+格式要求：
+每条建议必须按照以下格式输出：
+问题：xxx
+方案：xxx
+预期：xxx
+
+改进建议："""
+        
+        print("📝 发送到DeepSeek的提示词:", improvement_prompt)
+        
+        response = await call_deepseek_api_enhanced(
+            improvement_prompt, 
+            max_tokens=500, 
+            temperature=0.2
+        )
+        
+        print("📥 DeepSeek原始响应:", response)
+        
+        # Split the response into individual suggestions based on "问题：" markers
+        suggestions = []
+        current_suggestion = []
+        
+        for line in response.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.startswith('问题：') and current_suggestion:
+                # Save previous suggestion if exists
+                suggestions.append('\n'.join(current_suggestion))
+                current_suggestion = [line]
+            else:
+                current_suggestion.append(line)
+        
+        # Add the last suggestion if exists
+        if current_suggestion:
+            suggestions.append('\n'.join(current_suggestion))
+        
+        print("🔍 原始建议数量:", len(suggestions))
+        if suggestions:
+            print("📋 原始建议内容:", suggestions)
+        
+        # If no suggestions found, provide default ones
+        if not suggestions:
+            print("⚠️ 未找到有效建议，使用默认建议")
+            overall_score = evaluation_summary.get('overall_score_100', 75)
+            if overall_score >= 85:
+                suggestions = [
+                    "问题：提示词结构需要优化\n方案：建议重构提示词模板，增加角色定义和任务指令的清晰度\n预期：提高AI理解准确性和回答质量",
+                    "问题：上下文管理机制需要改进\n方案：优化历史对话的处理方式，增加关键信息提取和记忆机制\n预期：提升多轮对话的连贯性和准确性",
+                    "问题：专业领域引导需要加强\n方案：在提示词中增加领域特定的引导和约束条件\n预期：提高专业回答的准确性和深度"
+                ]
+            elif overall_score >= 70:
+                suggestions = [
+                    "问题：提示词格式需要标准化\n方案：统一提示词结构，明确区分角色定义、任务要求和约束条件\n预期：提高AI响应的一致性和可预测性",
+                    "问题：错误处理提示词需要完善\n方案：增加边界情况和异常处理的提示词设计\n预期：提高系统稳定性和用户体验",
+                    "问题：多轮对话提示词需要优化\n方案：改进对话历史的管理和引用方式\n预期：提升对话的连贯性和上下文理解",
+                    "问题：专业领域提示词需要细化\n方案：针对不同场景设计专门的提示词模板\n预期：提高专业回答的准确性和相关性"
+                ]
+            else:
+                suggestions = [
+                    "问题：提示词工程需要全面重构\n方案：重新设计提示词体系，包括角色定义、任务分解和约束条件\n预期：提高系统整体表现",
+                    "问题：上下文管理机制需要重建\n方案：设计新的对话历史处理机制，优化信息提取和记忆方式\n预期：提升对话质量和用户体验",
+                    "问题：专业领域引导需要强化\n方案：增加领域特定的提示词模板和知识引导机制\n预期：提高专业回答的准确性",
+                    "问题：错误处理机制需要完善\n方案：设计全面的错误处理和边界情况提示词\n预期：提高系统稳定性",
+                    "问题：多轮对话机制需要优化\n方案：改进对话流程控制和历史管理方式\n预期：提供更流畅的对话体验"
+                ]
+        
+        print(f"✅ 已生成 {len(suggestions)} 条AI智能改进建议")
+        return suggestions[:5]  # Return maximum 5 suggestions
+        
+    except Exception as e:
+        print(f"❌ 生成AI改进建议失败: {str(e)}")
+        # Return default suggestions
+        return [
+            "问题：提示词结构需要优化\n方案：重构提示词模板，增加角色定义和任务指令的清晰度\n预期：提高AI理解准确性和回答质量",
+            "问题：上下文管理机制需要改进\n方案：优化历史对话的处理方式，增加关键信息提取和记忆机制\n预期：提升多轮对话的连贯性和准确性",
+            "问题：专业领域引导需要加强\n方案：在提示词中增加领域特定的引导和约束条件\n预期：提高专业回答的准确性和深度",
+            "问题：错误处理提示词需要完善\n方案：增加边界情况和异常处理的提示词设计\n预期：提高系统稳定性和用户体验"
+        ]
 
 async def call_deepseek_api(prompt: str, max_retries: int = 2) -> str:
     """
@@ -698,110 +1086,124 @@ async def call_deepseek_api(prompt: str, max_retries: int = 2) -> str:
 async def call_ai_agent_api(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None, use_raw_message: bool = False) -> str:
     """Call AI Agent API - supports Coze, Dify, and custom APIs with conversation continuity"""
     import json  # Import json module to fix scope issues
-    try:
-        # 📝 Debug log for message processing mode
-        message_preview = message[:80] + "..." if len(message) > 80 else message
-        if use_raw_message:
-            print(f"🔍 [RAW MODE] {message_preview}")
-        else:
-            print(f"🔍 [ENHANCED MODE] {message_preview}")
-        
-        # Check if we should use Coze API (either explicit coze URL or fallback URL)
-        if "coze" in api_config.url.lower() or "fallback" in api_config.url.lower():
-            return await call_coze_api_fallback(message, use_raw_message=use_raw_message)
-        # Check if this is a Dify API (based on URL pattern)
-        elif "/v1/chat-messages" in api_config.url or "dify" in api_config.url.lower():
-            conversation_id = conversation_manager.get_conversation_id() if conversation_manager else ""
-            response_content, new_conversation_id = await call_dify_api(api_config, message, conversation_id, use_raw_message=use_raw_message)
-            
-            # Update conversation manager with new conversation ID
-            if conversation_manager and new_conversation_id:
-                conversation_manager.update_conversation_id(new_conversation_id)
-            
-            return response_content
-        else:
-            # Enhanced generic API support with auto-detection of API formats
-            headers = api_config.headers.copy()
-            headers.setdefault("Content-Type", "application/json")
-            
-            # Auto-detect API format based on URL patterns
-            session_id = getattr(conversation_manager, 'conversation_id', '') if conversation_manager else ""
-            
-            # Specialized handling for engineering supervision API (cpolar format)
-            if "/ask" in api_config.url or "cpolar" in api_config.url:
-                print(f"🔧 Detected engineering supervision API format")
-                payload = {
-                    "question": message,
-                    "session_id": session_id or f"eval-{int(time.time())}",
-                    "context": ""
-                }
-            # Standard custom API formats
+    import asyncio
+    import time
+    
+    # 🔧 Enhanced retry logic for connection failures
+    max_retries = 3
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # 📝 Debug log for message processing mode
+            message_preview = message[:80] + "..." if len(message) > 80 else message
+            if use_raw_message:
+                print(f"🔍 [RAW MODE] Attempt {attempt+1}/{max_retries}: {message_preview}")
             else:
-                # Use appropriate payload field based on raw message mode
-                if use_raw_message:
-                    payload = {"input": message, "question": message, "query": message}  # Raw user input fields
-                else:
-                    payload = {"message": message, "query": message}  # Enhanced message fields
+                print(f"🔍 [ENHANCED MODE] Attempt {attempt+1}/{max_retries}: {message_preview}")
             
-            print(f"📤 Custom API payload: {json.dumps(payload, ensure_ascii=False)[:200]}...")
+            # Check if we should use Coze API (either explicit coze URL or fallback URL)
+            if "coze" in api_config.url.lower() or "fallback" in api_config.url.lower():
+                return await call_coze_api_fallback(message, use_raw_message=use_raw_message)
             
-            async with httpx.AsyncClient(timeout=httpx.Timeout(api_config.timeout)) as client:
-                response = await client.request(
-                    method=api_config.method,
-                    url=api_config.url,
-                    headers=headers,
-                    json=payload
-                )
+            # Check if this is a Dify API (based on URL pattern)
+            elif "/v1/chat-messages" in api_config.url or "dify" in api_config.url.lower():
+                conversation_id = conversation_manager.get_conversation_id() if conversation_manager else ""
+                response_content, new_conversation_id = await call_dify_api(api_config, message, conversation_id, use_raw_message=use_raw_message)
                 
-                print(f"📥 Custom API response status: {response.status_code}")
+                # Update conversation manager with new conversation ID
+                if conversation_manager and new_conversation_id:
+                    conversation_manager.update_conversation_id(new_conversation_id)
                 
-                if response.status_code == 200:
-                    result = response.json()
-                    print(f"📋 Custom API response preview: {json.dumps(result, ensure_ascii=False)[:300]}...")
-                    
-                    # Try common response paths with priority for engineering supervision format
-                    raw_response = ""
-                    if "answer" in result:  # Primary field for engineering supervision API
-                        raw_response = result["answer"]
-                    elif "response" in result:
-                        raw_response = result["response"]
-                    elif "message" in result:
-                        raw_response = result["message"]
-                    elif "reply" in result:
-                        raw_response = result["reply"]
-                    elif "content" in result:
-                        raw_response = result["content"]
-                    else:
-                        # Fallback: look for any string value in the response
-                        for key, value in result.items():
-                            if isinstance(value, str) and len(value) > 10:
-                                raw_response = value
-                                break
-                        if not raw_response:
-                            raw_response = str(result)
-                    
-                    # 🔧 UNIVERSAL FIX: Apply plugin extraction to generic API responses too
-                    if raw_response:
-                        cleaned_response = clean_ai_response(raw_response)
-                        if cleaned_response and cleaned_response != raw_response:
-                            print(f"🧹 通用API响应经过插件提取处理: {cleaned_response[:100]}...")
-                            return cleaned_response
-                        print(f"✅ Custom API response: {raw_response[:100]}...")
-                        return raw_response
-                    else:
-                        return "Empty response from API"
+                return response_content
+            else:
+                # Enhanced generic API support with auto-detection of API formats
+                headers = api_config.headers.copy()
+                headers.setdefault("Content-Type", "application/json")
+                
+                # Auto-detect API format based on URL patterns
+                session_id = getattr(conversation_manager, 'conversation_id', '') if conversation_manager else ""
+                
+                # Specialized handling for engineering supervision API (cpolar format)
+                if "/ask" in api_config.url or "cpolar" in api_config.url:
+                    print(f"🔧 Detected engineering supervision API format")
+                    payload = {
+                        "question": message,
+                        "session_id": session_id or f"eval-{int(time.time())}",
+                        "context": ""
+                    }
+                # Standard custom API formats
                 else:
-                    error_message = f"API调用失败: {response.status_code}"
-                    try:
-                        error_detail = response.json()
-                        error_message += f" - {error_detail}"
-                    except:
-                        error_message += f" - {response.text}"
-                    return error_message
+                    # Use appropriate payload field based on raw message mode
+                    if use_raw_message:
+                        payload = {"input": message, "question": message, "query": message}  # Raw user input fields
+                    else:
+                        payload = {"message": message, "query": message}  # Enhanced message fields
+                
+                print(f"📤 Custom API payload: {json.dumps(payload, ensure_ascii=False)[:200]}...")
+                
+                async with httpx.AsyncClient(timeout=httpx.Timeout(api_config.timeout)) as client:
+                    response = await client.request(
+                        method=api_config.method,
+                        url=api_config.url,
+                        headers=headers,
+                        json=payload
+                    )
                     
-    except Exception as e:
-        print(f"❌ AI Agent API调用异常: {str(e)}")
-        return "AI Agent API调用失败，请检查配置"
+                    print(f"📥 Custom API response status: {response.status_code}")
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        print(f"📋 Custom API response preview: {json.dumps(result, ensure_ascii=False)[:300]}...")
+                        
+                        # Try common response paths with priority for engineering supervision format
+                        raw_response = ""
+                        if "answer" in result:  # Primary field for engineering supervision API
+                            raw_response = result["answer"]
+                        elif "response" in result:
+                            raw_response = result["response"]
+                        elif "message" in result:
+                            raw_response = result["message"]
+                        elif "reply" in result:
+                            raw_response = result["reply"]
+                        elif "content" in result:
+                            raw_response = result["content"]
+                        else:
+                            # Fallback: look for any string value in the response
+                            for key, value in result.items():
+                                if isinstance(value, str) and len(value) > 10:
+                                    raw_response = value
+                                    break
+                            if not raw_response:
+                                raw_response = str(result)
+                        
+                        # 🔧 UNIVERSAL FIX: Apply plugin extraction to generic API responses too
+                        if raw_response:
+                            cleaned_response = clean_ai_response(raw_response)
+                            if cleaned_response and cleaned_response != raw_response:
+                                print(f"🧹 通用API响应经过插件提取处理: {cleaned_response[:100]}...")
+                                return cleaned_response
+                            print(f"✅ Custom API response: {raw_response[:100]}...")
+                            return raw_response
+                        else:
+                            return "Empty response from API"
+                    else:
+                        error_message = f"API调用失败: {response.status_code}"
+                        try:
+                            error_detail = response.json()
+                            error_message += f" - {error_detail}"
+                        except:
+                            error_message += f" - {response.text}"
+                        return error_message
+                        
+        except Exception as e:
+            print(f"❌ AI Agent API调用异常 (尝试 {attempt+1}/{max_retries}): {str(e)}")
+            if attempt == max_retries - 1:  # 最后一次尝试
+                return f"AI Agent API调用失败，请检查配置: {str(e)}"
+            await asyncio.sleep(retry_delay)  # 重试前等待
+    
+    # 如果所有重试都失败，返回错误消息
+    return "AI Agent API调用失败：超过最大重试次数"
 
 async def call_dify_api(api_config: APIConfig, message: str, conversation_id: str = "", use_raw_message: bool = False) -> tuple:
     """
@@ -1300,7 +1702,21 @@ async def call_coze_api_fallback(message: str, bot_id: str = None, use_raw_messa
 def extract_score_from_response(response: str) -> float:
     """Extract numerical score from DeepSeek response (1-100 scale)"""
     try:
-        # Look for patterns like "评分：85分", "得分：75", "85/100", etc.
+        # First try to parse as JSON (new format)
+        try:
+            # Look for JSON object in response
+            json_start = response.find('{')
+            json_end = response.rfind('}')
+            if json_start != -1 and json_end != -1:
+                json_str = response[json_start:json_end+1]
+                parsed = json.loads(json_str)
+                if 'score' in parsed:
+                    score = float(parsed['score'])
+                    return min(max(score, 1.0), 100.0)  # Clamp between 1-100
+        except (json.JSONDecodeError, ValueError, KeyError):
+            pass
+        
+        # Fallback to pattern matching (legacy format)
         patterns = [
             r'评分[：:]\s*(\d+(?:\.\d+)?)',
             r'得分[：:]\s*(\d+(?:\.\d+)?)',
@@ -1676,11 +2092,8 @@ def generate_enhanced_recommendations(evaluation_results: List[Dict], user_perso
     else:
         recommendations.append(f"🔴 需要显著改进对{persona.get('role', '用户')}的服务能力，特别是{context.get('business_domain', '业务')}相关功能")
     
-    # Dimension-specific recommendations with persona context
-    if dimension_averages.get('fuzzy_understanding', 0) < 3.5:
-        pain_points = context.get('pain_points', [])
-        pain_context = f"，特别是{', '.join(pain_points[:2])}" if pain_points else ""
-        recommendations.append(f"💡 针对{persona.get('role', '用户')}的模糊理解能力需要加强：增加追问引导机制{pain_context}")
+    # Dimension-specific recommendations with persona context  
+    # (Removed fuzzy_understanding dimension - no longer needed)
     
     if dimension_averages.get('answer_correctness', 0) < 3.5:
         expertise_areas = persona.get('expertise_areas', [])
@@ -2004,13 +2417,181 @@ async def evaluate_agent_with_file(
         print(f"❌ Evaluation failed with error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"评估过程出错: {str(e)}")
 
+@app.post("/api/evaluate-agent-specification-query", response_model=EvaluationResponse)
+async def evaluate_agent_specification_query(
+    agent_api_config: str = Form(...),
+    use_raw_messages: bool = Form(False),  # Use raw user messages without persona enhancement
+    enable_turn_control: bool = Form(True),  # Enable 6-turn limit and satisfaction detection
+    is_tricky_test: bool = Form(False)  # Enable tricky test mode for edge-case questions
+):
+    """
+    Evaluate AI Agent specifically for specification query project with fixed persona and enhanced dimensions
+    """
+    try:
+        print("🚀 开始规范查询项目评估...")
+        
+        # Use fixed specification query persona and context
+        user_persona_info = SPECIFICATION_QUERY_DEFAULTS
+        requirement_context = "工程项目现场监理工程师规范查询系统"
+        
+        # Parse API configuration
+        try:
+            api_config = APIConfig.parse_raw(agent_api_config)
+            print(f"✅ API配置解析成功: {api_config.type}")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"API配置解析失败: {str(e)}")
+        
+        # Generate optimized scenario for specification query
+        scenarios = await generate_specification_query_scenarios(user_persona_info)
+        
+        # Perform evaluation with specification query enhancements
+        evaluation_results = []
+        for i, scenario in enumerate(scenarios):
+            print(f"\n🎯 评估场景 {i+1}/{len(scenarios)}: {scenario.get('title', '规范查询场景')}")
+            
+            try:
+                # Conduct conversation with turn control if enabled
+                if enable_turn_control:
+                            conversation_history = await conduct_conversation_with_turn_control(
+            api_config, scenario, user_persona_info, use_raw_messages, is_tricky_test
+        )
+                else:
+                    conversation_history = await conduct_optimized_dynamic_conversation(
+                        api_config, scenario, user_persona_info, use_raw_messages
+                    )
+                
+                if not conversation_history:
+                    print(f"  ⚠️ 场景 {i+1} 未生成有效对话")
+                    continue
+                
+                # Use specification query evaluation
+                evaluation_scores, detailed_explanations, scenario_score = await evaluate_conversation_specification_query(
+                    conversation_history, scenario, requirement_context, user_persona_info
+                )
+                
+                # Store enhanced result
+                evaluation_results.append({
+                    "scenario": scenario,
+                    "conversation_history": conversation_history,
+                    "evaluation_scores": evaluation_scores,
+                    "detailed_explanations": detailed_explanations,
+                    "evaluation_scores_with_explanations": detailed_explanations,
+                    "scenario_score": scenario_score / 20,  # Convert to 5-point scale for compatibility
+                    "scenario_score_100": scenario_score,   # Keep 100-point scale
+                    "scenario_grade": get_score_grade(scenario_score)
+                })
+                
+                print(f"  ✅ 场景 {i+1} 评估完成，得分: {scenario_score:.1f}/100")
+                
+            except Exception as e:
+                print(f"  ❌ 场景 {i+1} 评估失败: {str(e)}")
+                continue
+        
+        if not evaluation_results:
+            raise HTTPException(status_code=500, detail="所有评估场景都失败了")
+        
+        # Generate comprehensive summary
+        overall_score_100 = sum(r.get('scenario_score_100', 0) for r in evaluation_results) / len(evaluation_results)
+        overall_score_5 = overall_score_100 / 20
+        total_conversations = sum(len(r.get('conversation_history', [])) for r in evaluation_results)
+        
+        # Calculate dimension averages (8 dimensions for specification query)
+        all_scores_100 = {}
+        for result in evaluation_results:
+            scores = result.get("evaluation_scores", {})
+            for dimension, score in scores.items():
+                if dimension not in all_scores_100:
+                    all_scores_100[dimension] = []
+                all_scores_100[dimension].append(score)
+        
+        dimension_averages_100 = {}
+        for dimension, scores in all_scores_100.items():
+            dimension_averages_100[dimension] = round(sum(scores) / len(scores), 2) if scores else 0
+        
+        evaluation_summary = {
+            "overall_score": round(overall_score_5, 2),
+            "overall_score_100": round(overall_score_100, 2),
+            "total_scenarios": len(evaluation_results),
+            "total_conversations": total_conversations,
+            "framework": "规范查询项目 8维度评估框架 (100分制)",
+            "dimension_scores_100": dimension_averages_100,
+            "dimension_scores": {k: round(v/20, 2) for k, v in dimension_averages_100.items()},
+            "scoring_mode": "specification_query",
+            "turn_control_enabled": enable_turn_control,
+            "max_turns": MAX_CONVERSATION_TURNS
+        }
+        
+        # Generate AI-powered improvement suggestions for programmers
+        print("🤖 正在生成AI智能改进建议...")
+        all_detailed_explanations = {}
+        for result in evaluation_results:
+            explanations = result.get("detailed_explanations", {})
+            for dimension, explanation in explanations.items():
+                if dimension not in all_detailed_explanations:
+                    all_detailed_explanations[dimension] = []
+                all_detailed_explanations[dimension].append(explanation)
+        
+        # Merge explanations from multiple scenarios
+        merged_explanations = {}
+        for dimension, explanation_list in all_detailed_explanations.items():
+            if explanation_list:
+                # Use the first explanation as base, but merge full_response content
+                merged_explanations[dimension] = explanation_list[0].copy()
+                # Combine all full_response content
+                all_responses = []
+                for exp in explanation_list:
+                    if exp and isinstance(exp, dict) and exp.get('full_response'):
+                        all_responses.append(exp['full_response'])
+                if all_responses:
+                    merged_explanations[dimension]['full_response'] = "\n\n".join(all_responses)
+        
+        ai_improvement_suggestions = await generate_ai_improvement_suggestions_for_programmers(
+            merged_explanations, evaluation_summary
+        )
+        
+        # Prepare response data
+        response_data = {
+            "evaluation_summary": evaluation_summary,
+            "conversation_records": evaluation_results,
+            "recommendations": ai_improvement_suggestions,  # Add AI-generated recommendations
+            "ai_improvement_suggestions": ai_improvement_suggestions,  # Also add with specific key
+            "user_persona_info": {
+                "extracted_persona_summary": user_persona_info,
+                "extraction_method": "规范查询项目固定画像",
+                "extraction_timestamp": datetime.now().isoformat()
+            },
+            "evaluation_mode": "specification_query",
+            "timestamp": datetime.now().isoformat(),
+            "version": "4.1"
+        }
+        
+        # Save to database if enabled
+        if config.ENABLE_DATABASE_SAVE:
+            try:
+                session_id = await save_evaluation_to_database(response_data, requirement_context)
+                response_data["session_id"] = session_id
+                print(f"💾 评估结果已保存到数据库: {session_id}")
+            except Exception as e:
+                print(f"⚠️ 数据库保存失败: {str(e)}")
+        
+        print(f"🎉 规范查询评估完成! 综合得分: {overall_score_100:.1f}/100")
+        
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 规范查询评估失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"评估失败: {str(e)}")
+
 @app.post("/api/evaluate-agent-dynamic", response_model=EvaluationResponse)
 async def evaluate_agent_dynamic(
     agent_api_config: str = Form(...),
     requirement_file: UploadFile = File(None),
     requirement_text: str = Form(None),
     extracted_persona: str = Form(None),  # JSON string of extracted persona
-    use_raw_messages: bool = Form(False)  # Use raw user messages without persona enhancement
+    use_raw_messages: bool = Form(False),  # Use raw user messages without persona enhancement
+    is_tricky_test: bool = Form(False)  # Enable tricky test mode for edge-case questions
 ):
     """
     New dynamic evaluation endpoint implementing conversational workflow:
@@ -2031,7 +2612,7 @@ async def evaluate_agent_dynamic(
         # Wrap the entire evaluation in a timeout
         evaluation_result = await asyncio.wait_for(
             _perform_dynamic_evaluation_internal(
-                agent_api_config, requirement_file, requirement_text, extracted_persona, use_raw_messages
+                agent_api_config, requirement_file, requirement_text, extracted_persona, use_raw_messages, is_tricky_test
             ),
             timeout=evaluation_timeout
         )
@@ -2060,7 +2641,8 @@ async def _perform_dynamic_evaluation_internal(
     requirement_file: UploadFile,
     requirement_text: str,
     extracted_persona: str,
-    use_raw_messages: bool = False
+    use_raw_messages: bool = False,
+    is_tricky_test: bool = False
 ) -> Dict:
     """
     Internal function to perform dynamic evaluation with proper error handling
@@ -2190,7 +2772,7 @@ async def _perform_dynamic_evaluation_internal(
             logger.info("🎯 Starting dynamic conversation evaluation...")
             print("🎯 开始动态多轮对话评估...")
             evaluation_results = await conduct_dynamic_multi_scenario_evaluation(
-                api_config, user_persona_info, requirement_context, use_raw_messages
+                api_config, user_persona_info, requirement_context, use_raw_messages, is_tricky_test
             )
             
             if not evaluation_results:
@@ -2234,45 +2816,11 @@ async def _perform_dynamic_evaluation_internal(
             evaluation_summary = generate_evaluation_summary(evaluation_results, requirement_context)
             
             response_data = {
-                "evaluation_summary": {
-                    "overall_score": round(overall_score_5, 2),  # Keep for compatibility
-                    "overall_score_100": round(overall_score_100, 2),  # Primary 100-point scale
-                    "total_scenarios": len(evaluation_results),
-                    "total_conversations": total_conversations,
-                    "framework": "动态多轮对话评估 (100分制)",
-                    "dimension_scores_100": evaluation_summary.get("dimensions_100", {}),
-                    "dimension_scores": evaluation_summary.get("dimensions", {}),  # Keep for compatibility
-                    "comprehensive_analysis": comprehensive_report,
-                    "extracted_persona_display": {
-                        "user_role": user_persona_info.get('user_persona', {}).get('role', '专业用户'),
-                        "business_domain": user_persona_info.get('usage_context', {}).get('business_domain', '专业服务'),
-                        "experience_level": user_persona_info.get('user_persona', {}).get('experience_level', '中等经验'),
-                        "communication_style": user_persona_info.get('user_persona', {}).get('communication_style', '专业沟通'),
-                        "work_environment": user_persona_info.get('user_persona', {}).get('work_environment', '专业工作环境'),
-                        "primary_scenarios": user_persona_info.get('usage_context', {}).get('primary_scenarios', ['专业咨询']),
-                        "pain_points": user_persona_info.get('usage_context', {}).get('pain_points', ['信息获取']),
-                        "core_functions": user_persona_info.get('extracted_requirements', {}).get('core_functions', ['信息查询']),
-                        "quality_expectations": user_persona_info.get('extracted_requirements', {}).get('quality_expectations', ['准确性']),
-                        "extraction_method": "DeepSeek智能提取分析",
-                        "document_length": len(requirement_context) if requirement_context else 0
-                    },
-                    "scoring_system": {
-                        "scale": "0-100分制",
-                        "grade_levels": {
-                            "90-100": "优秀 (Excellent)",
-                            "80-89": "良好 (Good)", 
-                            "70-79": "中等 (Average)",
-                            "60-69": "及格 (Pass)",
-                            "50-59": "不及格 (Below Pass)",
-                            "0-49": "需要改进 (Needs Improvement)"
-                        }
-                    }
-                },
                 "conversation_records": evaluation_results,
                 "recommendations": comprehensive_report.get('improvement_recommendations', []),
-                "extracted_persona_full": comprehensive_report.get('extracted_persona_summary', {}),
-                "persona_alignment_analysis": comprehensive_report.get('persona_alignment_analysis', ''),
-                "business_goal_achievement": comprehensive_report.get('business_goal_achievement', ''),
+                "ai_improvement_suggestions": ai_improvement_suggestions,  # Add AI suggestions
+                "evaluation_summary": evaluation_summary,
+                "user_persona_info": user_persona_info,
                 "detailed_context_display": {
                     "requirement_document_summary": {
                         "content_length": len(requirement_context) if requirement_context else 0,
@@ -2290,9 +2838,9 @@ async def _perform_dynamic_evaluation_internal(
                         "evaluation_dimensions": len(evaluation_results[0].get('evaluation_scores', {})) if evaluation_results else 3
                     }
                 },
-                "evaluation_mode": "dynamic",
-                "user_persona_info": user_persona_info,
-                "timestamp": datetime.now().isoformat()
+                "persona_alignment_analysis": comprehensive_report.get('persona_alignment_analysis', ''),
+                "business_goal_achievement": comprehensive_report.get('business_goal_achievement', ''),
+                "evaluation_mode": "dynamic_evaluation"
             }
             
             logger.info(f"🎯 Dynamic evaluation completed successfully! Score: {overall_score_100:.2f}/100.0")
@@ -2532,47 +3080,147 @@ async def perform_deepseek_evaluations(evaluation_prompts: Dict, base_context: s
         # Standard evaluation prompts 
         if not evaluation_prompts:  # If prompts not provided, create them
             evaluation_prompts = {
-                "fuzzy_understanding": f"""
-{base_context}
-
-请评估AI在模糊理解与追问能力方面的表现。
-
-评分标准 (1-5分):
-1分: 完全无法理解模糊表达，直接给出错误或无关回答
-2分: 理解错误且未主动追问，可能误导用户
-3分: 部分理解但引导不足，仅给出部分有用信息
-4分: 基本理解模糊表达且有一定引导，但追问不够深入
-5分: 准确理解模糊表达并有效引导用户澄清需求
-
-请给出具体评分和详细理由。
-""",
                 "answer_correctness": f"""
+你是一名**建筑工程问答质检官**，需要为 AI 答案的 **准确性 / 专业性** 打分并写评语。
+
+🔍 **必须重点排查**  
+1. *引用规范是否真实且与场景技术**适用***？（错把燃气软管规范当石材规范 → 严重错误）  
+2. 若回答"查不到"或"标准空缺"，是否说明信息来源、限制或替代做法？  
+3. 有无"看似合理、实则无关"或"堆砌规范名词"来掩盖缺乏依据的情况？
+
+📊 **评分标准 (0-100)**  
+- **90–100** 完全命中问题+引用真实且适用的条款  
+- **75–89** 基本正确，但存在轻微遗漏/未给出处  
+- **60–74** 回答表面合理，但未真正解决核心痛点或缺关键参数  
+- **40–59** 引用规范无关或适用性错误（如将 *GB 44017-2024* 用作石材腐蚀标准）  
+- **0–39** 伪造规范/条款或严重误导
+
+🧪 **负面示例（判 45 分）**  
+> 问：火山凝灰岩抗酸雨腐蚀有什么强制标准？  
+> 答：可参考 *GB 44017-2024 燃气用具连接用金属包覆软管* 第 7.6.3 条……  
+> 评语：规范与石材场景无关，属硬套用，严重误导。
+
+---
+
 {base_context}
 
-请评估AI回答的准确性与专业性。
+📝 **请输出 JSON**  
+```json
+{{"score": X, "comment": "…" }}
+```
+""",
+                "specification_citation_accuracy": f"""
+你是建筑规范引用核查员，需核对 AI 答案中提到的每一处规范/条款。
 
-评分标准 (1-5分):
-1分: 回答错误，包含危险信息或严重误导
-2分: 表面看起来合理但核心内容错误
-3分: 大部分正确但有明显缺漏或不够准确
-4分: 基本准确专业但缺少规范引用或细节
-5分: 完全准确且专业，有规范依据和实用指导
+🔍 **核查清单**  
+1. 编号 / 年份 / 条款是否存在？  
+2. 是否引用了已废止版本？  
+3. 引用文字与原文是否一致？  
+4. 引用是否与问题主题相关？  
+5. 有无虚构条款？  
+6. **适用性**：规范所属领域与提问场景是否匹配？
 
-请给出具体评分和详细理由。
+📊 **评分 (0-100)**  
+- **90–100** 全部准确且技术适用  
+- **75–89** 小幅偏差（如年份/条款号写错一位）  
+- **60–74** 条款存在但内容对不上 / 摘抄失真  
+- **40–59** 引用规范领域不符或硬套用（如将燃气软管规范用于石材检测）  
+- **0–39** 规范或条款不存在 / 整段伪造
+
+🧪 **负面示例（判 50 分）**  
+引用 *GB 44017-2024* 第 7.6.3 条作为"火山凝灰岩耐酸雨试验"，实际该规范用于燃气软管，领域不符。
+
+---
+
+{base_context}
+
+📝 **请输出 JSON**  
+```json
+{{"score": X, "comment": "…" }}
+```
+""",
+                "fuzzy_understanding": f"""
+你是AI模糊问题理解与引导能力评估专家，任务是评估AI在面对**不清晰或不完整问题**时的理解和引导能力。
+
+🔍 【重点关注】：
+1. 能否识别问题中的模糊或缺失信息
+2. 是否主动询问关键细节以明确需求
+3. 在信息不足时是否给出合理的引导性回答
+4. 能否帮助用户逐步完善问题描述
+
+---
+
+{base_context}
+
+📊 **评分标准 (0-100)**：
+- **90-100** 准确识别模糊点，主动引导澄清，提供有效建议
+- **75-89** 能识别部分模糊信息，有一定引导但不够全面
+- **60-74** 能察觉问题不清晰但引导方式不够有效
+- **40-59** 对模糊问题缺乏敏感度，回答偏离或过于宽泛
+- **0-39** 完全忽视问题模糊性，给出不相关或误导性回答
+
+🧪 **负面示例（判 30 分）**  
+> 问：房子有问题，能修吗？  
+> 答：当然可以修，一般房屋问题都有解决办法，你可以找施工队来看看。  
+> 评语：完全忽视问题的模糊性，给出过于笼统且可能误导的回答。
+
+---
+
+📝 **请输出 JSON**  
+```json
+{{"score": X, "comment": "…" }}
+```
+""",
+                "multi_turn_support": f"""
+你是AI多轮对话连贯性与支持度评估专家，任务是评估AI在**多轮对话**中的表现质量。
+
+🔍 【重点关注】：
+1. 是否能记住并引用前面对话的关键信息
+2. 回答是否与上下文逻辑连贯，避免自相矛盾
+3. 能否根据对话发展深入探讨问题
+4. 是否保持用户角色和场景的一致性
+
+---
+
+{base_context}
+
+📊 **评分标准 (0-100)**：
+- **90-100** 完美记忆上下文，回答连贯深入，逻辑一致
+- **75-89** 基本保持连贯性，偶有上下文衔接不够自然
+- **60-74** 能跟随对话但缺乏深入，部分回答脱离上下文
+- **40-59** 上下文记忆不稳定，存在逻辑矛盾
+- **0-39** 完全无视前面对话，回答前后矛盾或重复
+
+🧪 **负面示例（判 35 分）**  
+> 轮1-问：钢结构刷什么漆？  
+> 轮1-答：建议用环氧富锌底漆加聚氨酯面漆。  
+> 轮2-问：这个漆贵不贵？  
+> 轮2-答：钢结构防腐很重要，建议用防火涂料。  
+> 评语：完全忽视上文涂料选择，答非所问，逻辑不连贯。
+
+---
+
+📝 **请输出 JSON**  
+```json
+{{"score": X, "comment": "…" }}
+```
 """,
                 "persona_alignment": f"""
+你是用户画像匹配度评估专家，任务是判断AI是否采用了符合该用户角色的沟通风格与表达方式。
+
 {base_context}
 
-请评估AI与用户画像的匹配度。
+📊 **评分标准 (0-100)**:
+- **90–100** 完全贴合用户角色，语气自然专业
+- **75–89** 基本匹配，偶有不自然表达
+- **60–74** 有术语、语调等不适配问题
+- **40–59** 明显风格不符
+- **0–39** 完全脱离角色
 
-评分标准 (1-5分):
-1分: 沟通风格完全不符合用户背景
-2分: 用词过于专业或过于简单，用户难以理解
-3分: 基本可以理解但存在术语使用不当
-4分: 沟通风格基本合适，偶有不匹配
-5分: 完全贴合用户角色和沟通偏好
-
-请给出具体评分和详细理由。
+📝 **请输出 JSON**  
+```json
+{{"score": X, "comment": "…" }}
+```
 """
             }
             
@@ -2583,14 +3231,17 @@ async def perform_deepseek_evaluations(evaluation_prompts: Dict, base_context: s
 
 基于提供的需求文档，请评估AI是否达成了预期的目标对齐度。
 
-评分标准 (1-5分):
-1分: 完全偏离需求目标，未解决任何关键问题
-2分: 部分相关但未达成主要目标
-3分: 基本符合需求但有重要遗漏
-4分: 很好地满足了大部分需求目标
-5分: 完美对齐所有需求目标，超出预期
+📊 **评分标准 (0-100)**  
+- **90–100** 完美对齐所有需求目标，超出预期  
+- **75–89** 很好地满足了大部分需求目标  
+- **60–74** 基本符合需求但有重要遗漏  
+- **40–59** 部分相关但未达成主要目标  
+- **0–39** 完全偏离需求目标，未解决任何关键问题
 
-请给出具体评分和详细理由。
+📝 **请输出 JSON**  
+```json
+{{"score": X, "comment": "…" }}
+```
 """
         
         # Execute evaluations concurrently for better performance
@@ -2606,7 +3257,7 @@ async def perform_deepseek_evaluations(evaluation_prompts: Dict, base_context: s
                 evaluation_results[dimension] = score
                 explanations[dimension] = response
                 
-                print(f"  ✅ {dimension}: {score}/5")
+                print(f"  ✅ {dimension}: {score}/100")
                 
             except Exception as e:
                 print(f"  ❌ Failed to evaluate {dimension}: {str(e)}")
@@ -2621,7 +3272,7 @@ async def perform_deepseek_evaluations(evaluation_prompts: Dict, base_context: s
 
 def generate_evaluation_summary(evaluation_results: List[Dict], requirement_context: str = "") -> Dict:
     """
-    Generate evaluation summary from results - 100-point scale normalized
+    Generate evaluation summary from results - 100-point scale normalized, with Chinese labels and filtered dimensions
     """
     if not evaluation_results:
         return {
@@ -2629,54 +3280,72 @@ def generate_evaluation_summary(evaluation_results: List[Dict], requirement_cont
             "overall_score": 0.0,  # Keep for compatibility
             "total_scenarios": 0,
             "total_conversations": 0,
-            "framework": "AI Agent 4维度评估框架 (100分制)",
-            "dimensions_100": {},
-            "dimensions": {}  # Keep for compatibility
+            "framework": "AI Agent 6维度评估框架 (100分制)",
+            "dimension_scores_100": {},
+            "dimension_scores": {},  # Keep for compatibility
+            "persona": {},
+            "usage_context": {},
+            "goal": {}
         }
-        
     # Calculate dimension averages from 100-point scores
     all_scores_100 = {}
     total_conversations = 0
-    
     for result in evaluation_results:
-        # Use scenario_score_100 if available, fallback to converted scores
-        scenario_score_100 = result.get("scenario_score_100", 0)
-        if scenario_score_100 == 0:
-            # Convert from 5-point scale if needed
-            scenario_score_5 = result.get("scenario_score", 0)
-            scenario_score_100 = scenario_score_5 * 20 if scenario_score_5 <= 5 else scenario_score_5
-        
         scores = result.get("evaluation_scores", {})
         conversation_history = result.get("conversation_history", [])
         total_conversations += len(conversation_history)
-        
         for dimension, score in scores.items():
+            if dimension in ["response_conciseness", "error_handling_transparency"]:
+                continue
             if dimension not in all_scores_100:
                 all_scores_100[dimension] = []
-            # Ensure score is in 100-point scale
             normalized_score = score * 20 if score <= 5 else score
             all_scores_100[dimension].append(normalized_score)
-    
     # Calculate averages in 100-point scale
     dimension_averages_100 = {}
-    dimension_averages_5 = {}  # For compatibility
     for dimension, scores in all_scores_100.items():
         avg_100 = sum(scores) / len(scores) if scores else 0
-        dimension_averages_100[dimension] = round(avg_100, 2)
-        dimension_averages_5[dimension] = round(avg_100 / 20, 2)  # For compatibility
-    
+        zh_label = map_dimension_to_chinese(dimension)
+        dimension_averages_100[zh_label] = round(avg_100, 2)
     overall_score_100 = sum(dimension_averages_100.values()) / len(dimension_averages_100) if dimension_averages_100 else 0
     overall_score_5 = overall_score_100 / 20  # For compatibility
-    
+    # Persona/context/goal extraction
+    persona_summary = generate_persona_summary(requirement_context)
+    usage_context_summary = generate_usage_context_summary(requirement_context)
+    goal_summary = generate_goal_summary(requirement_context)
     return {
         "overall_score_100": round(overall_score_100, 2),
-        "overall_score": round(overall_score_5, 2),  # Keep for compatibility
+        "overall_score": round(overall_score_5, 2),
         "total_scenarios": len(evaluation_results),
         "total_conversations": total_conversations,
-        "framework": "AI Agent 4维度评估框架 (100分制)",
-        "dimensions_100": dimension_averages_100,
-        "dimensions": dimension_averages_5  # Keep for compatibility
+        "framework": "AI Agent 6维度评估框架 (100分制)",
+        "dimension_scores_100": dimension_averages_100,
+        "persona": persona_summary,
+        "usage_context": usage_context_summary,
+        "goal": goal_summary
     }
+
+def map_dimension_to_chinese(dimension: str) -> str:
+    mapping = {
+        'answer_correctness': '回答准确性',
+        'persona_alignment': '用户匹配度',
+        'goal_alignment': '目标对齐度',
+        'specification_citation_accuracy': '规范引用准确度',
+        'fuzzy_understanding': '模糊理解能力',
+        'multi_turn_support': '多轮支持度',
+        'user_matching': '用户匹配度',
+        'target_alignment': '目标对齐度',
+    }
+    return mapping.get(dimension, dimension)
+
+def map_explanations_to_chinese(explanations: dict) -> dict:
+    filtered = {}
+    for dim, data in explanations.items():
+        if dim in ["response_conciseness", "error_handling_transparency"]:
+            continue
+        zh_label = map_dimension_to_chinese(dim)
+        filtered[zh_label] = data
+    return filtered
 
 def extract_recommendations_from_response(response: str) -> List[str]:
     """Extract improvement recommendations from DeepSeek response"""
@@ -2916,7 +3585,7 @@ async def conduct_dynamic_conversation(api_config: APIConfig, scenario_info: Dic
     """Redirect to true dynamic conversation implementation"""
     return await conduct_true_dynamic_conversation(api_config, scenario_info, user_persona_info)
 
-async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info: Dict, user_persona_info: Dict, use_raw_messages: bool = False) -> List[Dict]:
+async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info: Dict, user_persona_info: Dict, use_raw_messages: bool = False, is_tricky_test: bool = False) -> List[Dict]:
     """
     TRUE dynamic conversation: Correct flow implementation
     
@@ -2942,7 +3611,7 @@ async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info
     
     # Step 1: Generate ONLY the initial message based on persona and scenario
     try:
-        initial_message = await generate_single_initial_message(scenario_info, user_persona_info)
+        initial_message = await generate_single_initial_message(scenario_info, user_persona_info, is_tricky_test)
         if not initial_message:
             raise Exception("Failed to generate initial message")
     except Exception as e:
@@ -2980,8 +3649,7 @@ async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info
             # If cleaned response is empty (system message), try to generate a fallback response
             if not cleaned_response:
                 try:
-                    fallback_prompt = f"""
-作为一个专业的{user_persona_info.get('user_persona', {}).get('role', '助手')}，请对以下问题给出简短但有用的回复：
+                    fallback_prompt = f"""作为一个专业的{user_persona_info.get('user_persona', {}).get('role', '助手')}，请对以下问题给出简短但有用的回复：
 
 用户问题：{current_user_message}
 回复要求：
@@ -2990,8 +3658,7 @@ async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info
 3. 如果需要更多信息，可以简单询问
 4. 回复控制在50字以内
 
-请直接给出回复：
-"""
+请直接给出回复："""
                     
                     fallback_response = await call_deepseek_api_enhanced(fallback_prompt, temperature=0.3, max_tokens=100)
                     if fallback_response and len(fallback_response.strip()) > 5:
@@ -3029,7 +3696,7 @@ async def conduct_true_dynamic_conversation(api_config: APIConfig, scenario_info
             if turn_num < 3:  # Don't generate after last turn
                 try:
                     next_message = await generate_next_message_based_on_response(
-                        scenario_info, user_persona_info, conversation_history, cleaned_response
+                        scenario_info, user_persona_info, conversation_history, cleaned_response, is_tricky_test
                     )
                     
                     if not next_message or next_message.upper() in ["END", "FINISH", "DONE"]:
@@ -3159,18 +3826,22 @@ async def download_evaluation_report(
         raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
 
 def generate_json_report(eval_results: Dict, include_transcript: bool = False) -> JSONResponse:
-    """Generate JSON format report with complete evaluation information"""
+    """Generate JSON format report with complete evaluation information and proper formatting"""
+    # 🔍 DEBUG: Check the actual evaluation_mode value
+    print(f"🔍 DEBUG: eval_results.evaluation_mode = {eval_results.get('evaluation_mode', 'NOT_FOUND')}")
+    
     report_data = {
         "evaluation_summary": eval_results.get("evaluation_summary", {}),
         "overall_score": eval_results.get("overall_score", 0),
         "dimension_scores": eval_results.get("dimension_scores", {}),
         "detailed_analysis": eval_results.get("detailed_analysis", {}),
         "recommendations": eval_results.get("recommendations", []),
+        "ai_improvement_suggestions": eval_results.get("ai_improvement_suggestions", []),  # Add DeepSeek recommendations
         "user_persona_info": eval_results.get("user_persona_info", {}),
         "detailed_context_display": eval_results.get("detailed_context_display", {}),
         "persona_alignment_analysis": eval_results.get("persona_alignment_analysis", ""),
         "business_goal_achievement": eval_results.get("business_goal_achievement", ""),
-        "evaluation_mode": eval_results.get("evaluation_mode", "unknown"),
+        "evaluation_mode": eval_results.get("evaluation_mode", "manual"),
         "timestamp": eval_results.get("timestamp", datetime.now().isoformat())
     }
     
@@ -3325,564 +3996,6 @@ def generate_docx_report(eval_results: Dict, include_transcript: bool = False) -
         filename="evaluation_report.docx",
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
-
-async def call_coze_with_strict_timeout(api_config: APIConfig, message: str, conversation_manager: ConversationManager = None, use_raw_message: bool = False) -> str:
-    """
-    Call AI Agent API with strict timeout for dynamic conversations and proper logging
-    """
-    try:
-        # Add memory check before API call to prevent crashes
-        memory_usage = check_memory_usage()
-        if memory_usage > config.MEMORY_CRITICAL_THRESHOLD:
-            raise Exception(f"Memory usage critical: {memory_usage:.1f}%. Please restart server.")
-        
-        # Use timeout wrapper for individual API calls
-        response = await asyncio.wait_for(
-            call_ai_agent_api(api_config, message, conversation_manager, use_raw_message),
-            timeout=config.DEFAULT_REQUEST_TIMEOUT  # 2 minutes for individual calls
-        )
-        
-        # Determine API type for proper logging (reduced verbosity)
-        if "/v1/chat-messages" in api_config.url or "dify" in api_config.url.lower():
-            print(f"✅ Dify API响应 ({len(response)} chars)")
-        elif "coze" in api_config.url.lower():
-            print(f"✅ Coze API响应 ({len(response)} chars)")
-        else:
-            print(f"✅ 自定义API响应 ({len(response)} chars)")
-            
-        return response
-        
-    except asyncio.TimeoutError:
-        print(f"⏰ API调用超时 ({config.DEFAULT_REQUEST_TIMEOUT}秒)")
-        return ""
-    except Exception as e:
-        print(f"❌ API调用失败: {str(e)}")
-        return ""
-
-async def generate_single_initial_message(scenario_info: Dict, user_persona_info: Dict) -> str:
-    """
-    Generate a single initial message based on scenario and user persona
-    """
-    try:
-        persona = user_persona_info.get('user_persona', {})
-        usage_context = user_persona_info.get('usage_context', {})
-        ai_role = user_persona_info.get('ai_role_simulation', {})
-        
-        # Get fuzzy expressions and opening patterns for this role
-        fuzzy_expressions = ai_role.get('fuzzy_expressions', [])
-        opening_patterns = ai_role.get('opening_patterns', [])
-        
-        generation_prompt = f"""
-你是一个{persona.get('role', '专业用户')}，工作环境是{persona.get('work_environment', '专业环境')}。
-你的沟通风格：{persona.get('communication_style', '专业沟通')}
-当前场景：{scenario_info.get('title', '专业咨询')}
-场景背景：{scenario_info.get('context', '工作场景')}
-
-请生成一个简短的初始问题或需求描述，要求：
-1. 体现{persona.get('role', '用户')}的身份和背景
-2. 表达方式要{persona.get('communication_style', '专业')}
-3. 可以稍微模糊或不完整，需要AI追问澄清
-4. 长度控制在10-30个字
-5. 不要使用引号或特殊符号
-
-示例风格参考（仅参考风格，不要照搬）：
-{', '.join(fuzzy_expressions[:3]) if fuzzy_expressions else '有个问题需要咨询'}
-
-直接输出问题内容，不要任何解释：
-"""
-        
-        response = await call_deepseek_api_enhanced(generation_prompt, temperature=0.6, max_tokens=100)
-        
-        # Clean the response
-        message = response.strip().strip('"').strip("'").strip('。').strip('？').strip('!')
-        
-        if message and len(message) > 3:
-            print(f"✅ 生成初始消息: {message}")
-            return message
-        else:
-            # Fallback to predefined patterns
-            if opening_patterns:
-                import random
-                fallback = random.choice(opening_patterns)
-                print(f"🔄 使用备用开场: {fallback}")
-                return fallback
-            else:
-                return "有个问题需要咨询"
-                
-    except Exception as e:
-        print(f"❌ 初始消息生成失败: {str(e)}")
-        # Ultimate fallback
-        return "请帮忙解决一个问题"
-
-async def generate_next_message_based_on_response(
-    scenario_info: Dict, 
-    user_persona_info: Dict, 
-    conversation_history: List[Dict], 
-    coze_response: str
-) -> str:
-    """
-    Generate next user message based on Coze's response and conversation context
-    """
-    try:
-        persona = user_persona_info.get('user_persona', {})
-        
-        # Analyze the conversation so far
-        turn_count = len(conversation_history)
-        last_user_message = conversation_history[-1]['user_message'] if conversation_history else ""
-        
-        generation_prompt = f"""
-你是一个{persona.get('role', '专业用户')}，正在与AI助手对话。
-沟通风格：{persona.get('communication_style', '专业沟通')}
-场景：{scenario_info.get('title', '专业咨询')}
-
-对话历史：
-{chr(10).join([f"第{turn['turn']}轮 - 我: {turn['user_message']}" for turn in conversation_history[-2:]])}
-AI刚才回复: {coze_response[:200]}
-
-现在是第{turn_count + 1}轮对话。基于AI的回复，请生成你的下一个问题或回应：
-
-要求：
-1. 自然地基于AI的回复内容继续对话
-2. 可以追问细节、要求澄清、或提出新的相关问题  
-3. 保持{persona.get('role', '用户')}的身份和{persona.get('communication_style', '沟通风格')}
-4. 长度10-40个字
-5. 如果AI已经充分回答了问题，可以回复"END"结束对话
-
-直接输出下一句话，不要解释：
-"""
-        
-        print(f"🤖 DeepSeek分析Coze回复内容: {coze_response[:50]}...")
-        response = await call_deepseek_api_enhanced(generation_prompt, temperature=0.7, max_tokens=150)
-        
-        # Clean the response
-        message = response.strip().strip('"').strip("'").strip('。').strip('？').strip('!')
-        
-        if message and len(message) > 2:
-            # Check if it's an end signal
-            if message.upper() in ["END", "FINISH", "DONE", "结束", "完成"]:
-                print("🔚 DeepSeek判断对话应该结束")
-                return "END"
-            
-            print(f"✅ DeepSeek基于Coze回复生成下轮消息: {message}")
-            return message
-        else:
-            # If generation fails, end the conversation
-            print("❌ DeepSeek生成下轮消息失败，结束对话")
-            return "END"
-            
-    except Exception as e:
-        print(f"❌ 下轮消息生成失败: {str(e)}")
-        return "END"
-
-async def evaluate_conversation_with_deepseek(
-    conversation_history: List[Dict], 
-    scenario_info: Dict, 
-    requirement_context: str = "", 
-    user_persona_info: Dict = None
-) -> tuple:
-    """
-    Enhanced conversation evaluation with detailed explanations and 100-point scoring
-    """
-    try:
-        print("🧠 开始DeepSeek智能评估...")
-        
-        # Build conversation context - ensure it uses the complete actual conversation
-        conversation_text = "完整对话记录:\n"
-        for turn in conversation_history:
-            conversation_text += f"第{turn['turn']}轮:\n"
-            conversation_text += f"用户: {turn['user_message']}\n"
-            conversation_text += f"AI回答: {turn['ai_response']}\n\n"
-        
-        # Build evaluation context
-        context_section = f"""
-业务场景: {scenario_info.get('context', '通用AI助手场景')}
-对话主题: {scenario_info.get('title', '')}
-"""
-        
-        # Add persona information if available
-        if user_persona_info:
-            persona = user_persona_info.get('user_persona', {})
-            context_section += f"""
-用户角色: {persona.get('role', '')}
-经验水平: {persona.get('experience_level', '')}
-沟通风格: {persona.get('communication_style', '')}
-工作环境: {persona.get('work_environment', '')}
-"""
-        
-        if requirement_context:
-            context_section += f"\n需求文档上下文:\n{requirement_context[:800]}"
-        
-        # Enhanced evaluation with detailed explanations
-        evaluation_scores = {}
-        detailed_explanations = {}
-        
-        # Define evaluation dimensions
-        dimensions = {
-            "fuzzy_understanding": "模糊理解与追问能力",
-            "answer_correctness": "回答准确性与专业性",
-            "persona_alignment": "用户匹配度"
-        }
-        
-        if requirement_context:
-            dimensions["goal_alignment"] = "目标对齐度"
-        
-        # Evaluate each dimension with optimized prompts (shorter but focused)
-        for dimension, dimension_name in dimensions.items():
-            eval_prompt = f"""
-{context_section}
-
-{conversation_text}
-
-请评估AI在"{dimension_name}"方面的表现。
-
-评分标准 (1-100分制):
-90-100分: 优秀表现，完全符合要求，超出预期
-80-89分: 良好表现，基本符合期望，有小幅提升空间
-70-79分: 中等表现，满足基本要求，但有明显改进空间
-60-69分: 及格表现，存在一些问题，需要改进
-50-59分: 不及格表现，有重要缺陷
-1-49分: 差劲表现，存在明显问题
-
-请按以下格式简洁输出：
-
-评分：XX分
-
-详细分析：
-[分析AI的具体表现，指出优势和不足]
-
-改进建议：
-[2-3条具体改进建议]
-"""
-            
-            try:
-                response = await call_deepseek_api_enhanced(eval_prompt, temperature=0.2, max_tokens=500)
-                
-                # Extract score (now on 100-point scale)
-                score = extract_score_from_response(response)
-                evaluation_scores[dimension] = score
-                
-                # Parse structured response with enhanced detail
-                parsed_analysis = parse_evaluation_response_enhanced(response, score)
-                
-                # Store detailed explanation with enhanced structure
-                detailed_explanations[dimension] = {
-                    "score": score,
-                    "score_out_of": 100,  # Make it clear this is out of 100
-                    "detailed_analysis": parsed_analysis.get("detailed_analysis", response),
-                    "specific_quotes": parsed_analysis.get("specific_quotes", ""),
-                    "improvement_suggestions": parsed_analysis.get("improvement_suggestions", ""),
-                    "comprehensive_evaluation": parsed_analysis.get("comprehensive_evaluation", ""),
-                    "dimension_name": dimension_name,
-                    "full_response": response,
-                    "score_grade": get_score_grade(score)  # Add grade label
-                }
-                
-                print(f"  ✅ {dimension_name}: {score}/100 ({get_score_grade(score)})")
-                
-            except Exception as e:
-                print(f"  ❌ {dimension_name}评估失败: {str(e)}")
-                evaluation_scores[dimension] = 60.0
-                detailed_explanations[dimension] = {
-                    "score": 60.0,
-                    "score_out_of": 100,
-                    "detailed_analysis": f"评估失败: {str(e)}，请重新尝试评估",
-                    "specific_quotes": "由于技术原因，无法提供具体对话引用",
-                    "improvement_suggestions": "建议检查AI Agent配置后重新评估",
-                    "comprehensive_evaluation": "技术问题导致评估中断",
-                    "dimension_name": dimension_name,
-                    "full_response": f"评估异常: {str(e)}",
-                    "score_grade": "及格"
-                }
-        
-        # Calculate overall score (now average of 100-point scores)
-        scenario_score = sum(evaluation_scores.values()) / len(evaluation_scores) if evaluation_scores else 60.0
-        
-        print(f"✅ 评估完成，场景得分: {scenario_score:.1f}/100")
-        return evaluation_scores, detailed_explanations, scenario_score
-        
-    except Exception as e:
-        print(f"❌ DeepSeek评估失败: {str(e)}")
-        # Return fallback scores with proper 100-point structure
-        fallback_scores = {
-            "fuzzy_understanding": 60.0,
-            "answer_correctness": 60.0,
-            "persona_alignment": 60.0
-        }
-        fallback_explanations = {
-            dim: {
-                "score": 60.0, 
-                "score_out_of": 100,
-                "detailed_analysis": f"由于技术原因导致评估失败: {str(e)}。请检查网络连接和API配置后重试。",
-                "specific_quotes": "无法获取具体对话引用，建议重新进行评估",
-                "improvement_suggestions": "建议检查AI Agent配置和网络连接状况",
-                "comprehensive_evaluation": "技术故障导致无法完成评估",
-                "dimension_name": dim,
-                "full_response": f"评估系统异常: {str(e)}",
-                "score_grade": "及格"
-            }
-            for dim in fallback_scores.keys()
-        }
-        return fallback_scores, fallback_explanations, 60.0
-
-def get_score_grade(score: float) -> str:
-    """Convert numerical score to grade label"""
-    if score >= 90:
-        return "优秀"
-    elif score >= 80:
-        return "良好"
-    elif score >= 70:
-        return "中等"
-    elif score >= 60:
-        return "及格"
-    else:
-        return "不及格"
-
-def parse_evaluation_response_enhanced(response: str, score: float) -> Dict[str, str]:
-    """
-    Parse enhanced evaluation response to extract different sections with better structure
-    """
-    try:
-        # Initialize result
-        result = {
-            "detailed_analysis": "",
-            "specific_quotes": "",
-            "improvement_suggestions": "",
-            "comprehensive_evaluation": ""
-        }
-        
-        # Split response into lines
-        lines = response.strip().split('\n')
-        current_section = "detailed_analysis"
-        
-        for line in lines:
-            line = line.strip()
-            
-            # Identify section headers
-            if "详细分析" in line or "分析" in line:
-                current_section = "detailed_analysis"
-                continue
-            elif "具体引用" in line or "引用" in line or "对话" in line:
-                current_section = "specific_quotes"
-                continue
-            elif "改进建议" in line or "建议" in line:
-                current_section = "improvement_suggestions"
-                continue
-            elif "综合评价" in line or "评价" in line:
-                current_section = "comprehensive_evaluation"
-                continue
-            elif "评分" in line:
-                continue  # Skip score lines
-            
-            # Add content to current section
-            if line and not line.startswith("评分"):
-                if result[current_section]:
-                    result[current_section] += "\n" + line
-                else:
-                    result[current_section] = line
-        
-        # Ensure all sections have content with enhanced detail
-        if not result["detailed_analysis"]:
-            result["detailed_analysis"] = f"评分 {score} 分（{get_score_grade(score)}）。" + (response[:300] if response else "未提供详细分析")
-            
-        if not result["specific_quotes"]:
-            result["specific_quotes"] = "具体对话引用：由于响应格式限制，未能提取具体引用内容。建议人工查看对话记录进行分析。"
-            
-        if not result["improvement_suggestions"]:
-            result["improvement_suggestions"] = "建议继续优化AI回答质量，提升用户满意度。具体改进措施需要根据对话内容进一步分析。"
-            
-        if not result["comprehensive_evaluation"]:
-            result["comprehensive_evaluation"] = f"该维度得分{score}分，属于{get_score_grade(score)}水平。"
-        
-        return result
-        
-    except Exception as e:
-        print(f"⚠️ 解析评估响应失败: {str(e)}")
-        return {
-            "detailed_analysis": f"评分 {score} 分（{get_score_grade(score)}）。" + (response[:300] if response else "解析失败，未提供详细分析"),
-            "specific_quotes": "由于解析异常，无法提供具体对话引用",
-            "improvement_suggestions": "建议重新进行评估以获取详细建议",
-            "comprehensive_evaluation": f"该维度得分{score}分，但由于解析问题，无法提供完整评价。"
-        }
-
-async def generate_final_comprehensive_report(
-    evaluation_results: List[Dict], 
-    user_persona_info: Dict, 
-    requirement_context: str
-) -> Dict:
-    """
-    Generate comprehensive final report with enhanced analysis
-    """
-    try:
-        print("📊 生成综合分析报告...")
-        
-        # Extract key information
-        total_scenarios = len(evaluation_results)
-        overall_scores = [r.get('scenario_score', 0) for r in evaluation_results]
-        avg_score = sum(overall_scores) / len(overall_scores) if overall_scores else 0
-        
-        persona = user_persona_info.get('user_persona', {})
-        context = user_persona_info.get('usage_context', {})
-        
-        # Generate improvement recommendations
-        recommendations = []
-        
-        if avg_score < 3.0:
-            recommendations.extend([
-                f"🔴 针对{persona.get('role', '用户')}的整体服务能力需要显著改进",
-                f"📚 加强{context.get('business_domain', '专业')}领域的知识库建设",
-                "💡 提升对模糊需求的理解和追问能力"
-            ])
-        elif avg_score < 4.0:
-            recommendations.extend([
-                f"🟡 对{persona.get('role', '用户')}的服务基本满足需求，有优化空间",
-                "🎯 针对用户沟通风格进行个性化优化",
-                "📈 继续提升专业知识的准确性"
-            ])
-        else:
-            recommendations.extend([
-                f"🟢 对{persona.get('role', '用户')}的服务表现优秀",
-                "✨ 保持当前优势，持续优化用户体验",
-                "🚀 可以考虑扩展更多专业场景支持"
-            ])
-        
-        return {
-            "improvement_recommendations": recommendations,
-            "extracted_persona_summary": user_persona_info,
-            "persona_alignment_analysis": f"基于{total_scenarios}个场景的评估，AI对{persona.get('role', '用户')}的适配程度为{avg_score:.2f}/5.0",
-            "business_goal_achievement": f"在{context.get('business_domain', '专业服务')}领域的目标达成度良好，平均得分{avg_score:.2f}分"
-        }
-        
-    except Exception as e:
-        print(f"❌ 综合报告生成失败: {str(e)}")
-        return {
-            "improvement_recommendations": ["系统建议：加强对话理解能力", "系统建议：提高回答准确性"],
-            "extracted_persona_summary": user_persona_info,
-            "persona_alignment_analysis": "基于系统分析生成",
-            "business_goal_achievement": "评估完成"
-        }
-
-def find_available_port(start_port: int = 8000, max_port: int = 8010) -> int:
-    """Find an available port starting from start_port"""
-    for port in range(start_port, max_port + 1):
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = sock.connect_ex(('localhost', port))
-            sock.close()
-            if result != 0:
-                return port
-        except:
-            continue
-    return start_port
-
-async def extract_user_persona_with_deepseek(requirement_content: str) -> Dict[str, Any]:
-    """
-    Optimized user persona extraction with faster, simpler approach
-    Reduced from ~30-60 seconds to ~5-10 seconds
-    """
-    
-    logger.info(f"🎭 开始快速用户画像提取，文档长度: {len(requirement_content)}")
-    print(f"🎭 开始快速用户画像提取，文档长度: {len(requirement_content)}")
-    
-    # Quick domain detection for fallback scenarios
-    domain_keywords = {
-        '建筑工程': ['建筑', '施工', '工程', '监理', '现场', '质量检查', '安全规范'],
-        '金融银行': ['银行', '金融', '理财', '客服', '账户', '贷款', '投资'],
-        '技术支持': ['技术', '软件', '系统', '故障', '运维', '开发'],
-        '客户服务': ['客服', '服务', '咨询', '接待', '投诉处理']
-    }
-    
-    detected_domain = "通用服务"
-    for domain, keywords in domain_keywords.items():
-        if any(kw in requirement_content for kw in keywords):
-            detected_domain = domain
-            break
-    
-    print(f"🔍 快速检测到领域: {detected_domain}")
-    
-    # Simplified single-step extraction (reduced from 2-3 API calls to 1)
-    extraction_prompt = f"""
-基于以下需求文档，快速提取关键用户信息。文档主要涉及: {detected_domain}
-
-需求文档内容:
-{requirement_content[:1200]}  # 减少输入长度以加快处理
-
-请输出JSON格式（不要任何其他文字）:
-{{
-    "user_persona": {{
-        "role": "具体用户角色",
-        "experience_level": "经验水平描述",
-        "communication_style": "沟通风格特点",
-        "work_environment": "工作环境描述"
-    }},
-    "usage_context": {{
-        "business_domain": "{detected_domain}",
-        "primary_scenarios": ["主要使用场景1", "主要使用场景2"],
-        "interaction_goals": ["交互目标1", "交互目标2"]
-    }},
-    "ai_role_simulation": {{
-        "typical_questions": ["典型问题1", "典型问题2"],
-        "fuzzy_expressions": ["模糊表达1", "模糊表达2"],
-        "conversation_approach": "对话方式偏好"
-    }}
-}}"""
-
-    try:
-        print("🧠 开始快速提取...")
-        # 使用更快的参数设置
-        response = await call_deepseek_api_enhanced(
-            extraction_prompt, 
-            temperature=0.2,  # 降低temperature提高速度
-            max_tokens=600   # 减少max_tokens加快响应
-        )
-        
-        # 快速JSON解析
-        cleaned_response = response.strip()
-        if cleaned_response.startswith('```'):
-            # 快速提取JSON部分
-            start_idx = cleaned_response.find('{')
-            end_idx = cleaned_response.rfind('}')
-            if start_idx != -1 and end_idx != -1:
-                cleaned_response = cleaned_response[start_idx:end_idx+1]
-        
-        extraction_result = json.loads(cleaned_response)
-        
-        # 简单验证和补充
-        required_keys = ['user_persona', 'usage_context', 'ai_role_simulation']
-        if all(key in extraction_result for key in required_keys):
-            print(f"✅ 快速提取成功: {extraction_result.get('user_persona', {}).get('role', '未知')}")
-            return extraction_result
-        else:
-            raise Exception("JSON结构不完整")
-            
-    except Exception as e:
-        print(f"⚠️ 快速提取失败: {str(e)}，使用快速回退方案")
-        
-        # 超快速回退方案（无需API调用）
-        role_mapping = {
-            '建筑工程': '建筑工程监理',
-            '金融银行': '银行客服专员', 
-            '技术支持': '技术支持工程师',
-            '客户服务': '客户服务代表'
-        }
-        
-        return {
-            "user_persona": {
-                "role": role_mapping.get(detected_domain, "专业用户"),
-                "experience_level": "3-5年相关工作经验",
-                "communication_style": "专业直接，偶有模糊表达",
-                "work_environment": f"{detected_domain}工作环境"
-            },
-            "usage_context": {
-                "business_domain": detected_domain,
-                "primary_scenarios": ["专业咨询", "问题解决"],
-                "interaction_goals": ["获取专业建议", "解决具体问题"]
-            },
-            "ai_role_simulation": {
-                "typical_questions": ["请帮我看看这个情况", "遇到了一些问题"],
-                "fuzzy_expressions": ["有个问题想咨询", "这块不太清楚"],
-                "conversation_approach": "直接询问，必要时澄清细节"
-            }
-        }
 
 def adjust_role_for_domain_consistency(extraction_result: Dict, domain_hints: Dict) -> Dict:
     """
@@ -4052,7 +4165,8 @@ async def conduct_dynamic_multi_scenario_evaluation(
     api_config: APIConfig,
     user_persona_info: Dict,
     requirement_context: str,
-    use_raw_messages: bool = False
+    use_raw_messages: bool = False,
+    is_tricky_test: bool = False
 ) -> List[Dict]:
     """
     Optimized dynamic evaluation: 1 focused scenario with 2-3 turns max
@@ -4081,7 +4195,7 @@ async def conduct_dynamic_multi_scenario_evaluation(
         try:
             # Conduct optimized dynamic conversation (2-3 turns max)
             conversation_history = await conduct_optimized_dynamic_conversation(
-                api_config, scenario_info, user_persona_info, use_raw_messages
+                api_config, scenario_info, user_persona_info, use_raw_messages, is_tricky_test
             )
             
             if not conversation_history:
@@ -4143,8 +4257,7 @@ async def generate_optimized_scenario_from_persona(user_persona_info: Dict) -> L
         business_domain = usage_context.get('business_domain', '专业服务')
         primary_scenarios = usage_context.get('primary_scenarios', ['咨询服务', '问题解决'])
         
-        scenario_prompt = f"""
-基于以下用户画像，生成1个真实、具体的对话场景：
+        scenario_prompt = f"""基于以下用户画像，生成1个真实、具体的对话场景：
 
 用户角色：{role}
 业务领域：{business_domain}
@@ -4164,8 +4277,7 @@ async def generate_optimized_scenario_from_persona(user_persona_info: Dict) -> L
 2. 场景要有明确的业务背景和具体情境
 3. 避免过于复杂的技术细节，但要足够具体
 
-直接输出JSON对象，不要其他文字：
-"""
+直接输出JSON对象，不要其他文字："""
         
         print("🎭 DeepSeek生成动态场景...")
         response = await call_deepseek_api_enhanced(scenario_prompt, temperature=0.4, max_tokens=400)
@@ -4348,8 +4460,8 @@ async def debug_document_processing(
             result["document_processing"] = {
                 "status": "success",
                 "source": "text_input",
-                "content_length": len(requirement_context),
-                "content_preview": requirement_context[:300] + "..." if len(requirement_context) > 300 else requirement_context
+                "content_length": len(requirement_text),
+                "content_preview": requirement_text[:300] + "..." if len(requirement_text) > 300 else requirement_text
             }
         
         if not requirement_context:
@@ -4444,6 +4556,22 @@ def generate_session_id() -> str:
     random_suffix = uuid.uuid4().hex[:8]
     return f"EVAL_{timestamp}_{random_suffix}"
 
+def get_evaluation_mode_abbreviation(mode: str) -> str:
+    """Convert evaluation mode to database-friendly abbreviation"""
+    mode_abbreviations = {
+        'specification_query': 'spec_query',
+        'dynamic_evaluation': 'dynamic',
+        'manual_evaluation': 'manual',
+        'auto_evaluation': 'auto',
+        'with_file_evaluation': 'with_file',
+        'multi_scenario': 'multi_scen'
+    }
+    
+    # Return abbreviation if exists, otherwise truncate to 20 characters
+    result = mode_abbreviations.get(mode, mode[:20])
+    print(f"🔧 DEBUG: Abbreviating evaluation_mode '{mode}' -> '{result}' (length: {len(result)})")
+    return result
+
 async def save_evaluation_to_database(evaluation_data: Dict, requirement_context: str = "") -> str:
     """
     Save evaluation results to database
@@ -4485,7 +4613,7 @@ async def save_evaluation_to_database(evaluation_data: Dict, requirement_context
                 round(overall_score_5_point, 2),  # Store as 5-point scale
                 evaluation_summary.get('total_scenarios', 0),
                 evaluation_summary.get('total_conversations', 0),
-                evaluation_data.get('evaluation_mode', 'manual'),
+                get_evaluation_mode_abbreviation(evaluation_data.get('evaluation_mode', 'manual')),  # Use abbreviation for database storage
                 evaluation_summary.get('framework', 'AI Agent 3维度评估框架'),
                 requirement_context[:5000] if requirement_context else None,  # Limit length
                 json.dumps(evaluation_data.get('ai_agent_config', {})),
@@ -4560,7 +4688,6 @@ async def save_evaluation_to_database(evaluation_data: Dict, requirement_context
                         """
                         
                         dimension_labels = {
-                            'fuzzy_understanding': '模糊理解与追问能力',
                             'answer_correctness': '回答准确性与专业性',
                             'persona_alignment': '用户匹配度',
                             'goal_alignment': '目标对齐度'
@@ -4590,12 +4717,30 @@ async def save_evaluation_to_database(evaluation_data: Dict, requirement_context
         return session_id
         
     except Exception as e:
-        connection.rollback()
+        if connection:
+            connection.rollback()
         print(f"❌ Failed to save evaluation to database: {str(e)}")
+        
+        # Check for common database errors and provide specific solutions
+        error_str = str(e)
+        if "Data truncated for column" in error_str:
+            print("💡 Hint: This is likely a column size issue. The data being inserted is too long for the database column.")
+            if "evaluation_mode" in error_str:
+                print("   - evaluation_mode column needs to be expanded to accommodate values like 'specification_query'")
+        elif "Duplicate entry" in error_str:
+            print("💡 Hint: This is a duplicate key error. The session_id might already exist.")
+        elif "doesn't exist" in error_str:
+            print("💡 Hint: Database table doesn't exist. Please check if the database schema is set up correctly.")
+        
         print(f"Full traceback: {traceback.format_exc()}")
-        return None
+        
+        # Generate a fallback session_id so the evaluation can still continue
+        fallback_session_id = f"local_{int(time.time())}"
+        print(f"🔄 Using fallback session_id for this evaluation: {fallback_session_id}")
+        return fallback_session_id
     finally:
-        connection.close()
+        if connection:
+            connection.close()
 
 async def save_download_record(session_id: str, download_format: str, include_transcript: bool, 
                              file_size: int = None, request: Request = None) -> bool:
@@ -5032,409 +5177,64 @@ def validate_api_url(url: str) -> bool:
     
     return True
 
-@app.post("/api/convert-docx-to-text")
-async def convert_docx_to_text(
-    requirement_file: UploadFile = File(...),
-):
+def find_available_port(start_port: int) -> int:
+    """Find an available port starting from the given port number"""
+    import socket
+    
+    port = start_port
+    while port < start_port + 100:  # Try up to 100 ports
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('localhost', port))
+                return port
+        except OSError:
+            port += 1
+    
+    # If no port found in range, return the original port
+    print(f"⚠️ No available port found in range {start_port}-{start_port + 100}, using {start_port}")
+    return start_port
+
+def find_available_port(start_port: int) -> int:
+    """Find an available port starting from the given port number"""
+    import socket
+    
+    port = start_port
+    while port < start_port + 100:  # Try up to 100 ports
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('localhost', port))
+                return port
+        except OSError:
+            port += 1
+    
+    # If no port found in range, return the original port
+    print(f"⚠️ No available port found in range {start_port}-{start_port + 100}, using {start_port}")
+    return start_port
+
+async def generate_quick_initial_message(scenario: Dict, user_persona_info: Dict, is_tricky_test: bool = False) -> str:
     """
-    Cloud-compatible DOCX to text conversion endpoint
-    Provides detailed extraction methods and fallback options
+    Generate AI-powered initial user message based on scenario and user persona
+    Uses DeepSeek API to create natural, role-appropriate conversation starters
+    Now supports tricky test mode for edge-case questions
     """
     try:
-        if not requirement_file or not requirement_file.filename:
-            raise HTTPException(status_code=400, detail="未提供文件")
+        # Extract persona information
+        persona_summary = user_persona_info.get('extracted_persona_summary', {})
+        role = persona_summary.get('user_persona', {}).get('role', '工程项目现场监理工程师')
+        experience_level = persona_summary.get('user_persona', {}).get('experience_level', '有经验')
+        communication_style = persona_summary.get('user_persona', {}).get('communication_style', '专业直接')
+        business_domain = persona_summary.get('business_domain', '建筑工程')
         
-        if not requirement_file.filename.lower().endswith('.docx'):
-            raise HTTPException(status_code=400, detail="仅支持DOCX格式文件")
+        # Get scenario context
+        scenario_title = scenario.get('title', '规范查询')
+        scenario_context = scenario.get('context', '工程规范相关问题咨询')
         
-        # Validate file
-        if not validate_filename(requirement_file.filename):
-            raise HTTPException(status_code=400, detail="不安全的文件名")
-        
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
-            try:
-                content = await requirement_file.read()
-                
-                if len(content) > config.MAX_FILE_SIZE:
-                    raise HTTPException(status_code=413, detail="文件过大，请使用小于10MB的文件")
-                
-                tmp_file.write(content)
-                tmp_file.flush()
-                
-                # Try all extraction methods and return best result
-                extraction_results = {}
-                
-                # Method 1: python-docx
-                try:
-                    result1 = _extract_with_python_docx(tmp_file.name)
-                    extraction_results['python_docx'] = {
-                        'success': True,
-                        'content': result1,
-                        'length': len(result1),
-                        'method': 'python-docx library'
-                    }
-                except Exception as e:
-                    extraction_results['python_docx'] = {
-                        'success': False,
-                        'error': str(e),
-                        'method': 'python-docx library'
-                    }
-                
-                # Method 2: ZIP+XML Advanced
-                try:
-                    result2 = _extract_with_zip_xml_advanced(tmp_file.name)
-                    extraction_results['zip_xml_advanced'] = {
-                        'success': True,
-                        'content': result2,
-                        'length': len(result2),
-                        'method': 'ZIP+XML with namespaces'
-                    }
-                except Exception as e:
-                    extraction_results['zip_xml_advanced'] = {
-                        'success': False,
-                        'error': str(e),
-                        'method': 'ZIP+XML with namespaces'
-                    }
-                
-                # Method 3: ZIP+XML Simple
-                try:
-                    result3 = _extract_with_zip_xml_simple(tmp_file.name)
-                    extraction_results['zip_xml_simple'] = {
-                        'success': True,
-                        'content': result3,
-                        'length': len(result3),
-                        'method': 'Simple ZIP+XML parsing'
-                    }
-                except Exception as e:
-                    extraction_results['zip_xml_simple'] = {
-                        'success': False,
-                        'error': str(e),
-                        'method': 'Simple ZIP+XML parsing'
-                    }
-                
-                # Method 4: Raw text extraction
-                try:
-                    result4 = _extract_raw_text_from_docx(tmp_file.name)
-                    extraction_results['raw_extraction'] = {
-                        'success': True,
-                        'content': result4,
-                        'length': len(result4),
-                        'method': 'Raw text extraction with regex'
-                    }
-                except Exception as e:
-                    extraction_results['raw_extraction'] = {
-                        'success': False,
-                        'error': str(e),
-                        'method': 'Raw text extraction with regex'
-                    }
-                
-                # Find best result
-                best_result = None
-                best_method = None
-                best_length = 0
-                
-                for method, result in extraction_results.items():
-                    if result['success'] and result['length'] > best_length:
-                        best_result = result['content']
-                        best_method = method
-                        best_length = result['length']
-                
-                return {
-                    "success": best_result is not None,
-                    "best_method": best_method,
-                    "best_content": best_result,
-                    "content_length": best_length,
-                    "extraction_ratio": (best_length / len(content) * 100) if len(content) > 0 else 0,
-                    "all_methods": extraction_results,
-                    "recommendations": _generate_conversion_recommendations(extraction_results, len(content)),
-                    "filename": requirement_file.filename,
-                    "file_size": len(content)
-                }
-                
-            finally:
-                try:
-                    if os.path.exists(tmp_file.name):
-                        os.unlink(tmp_file.name)
-                except:
-                    pass
-                    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ DOCX转换失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"文档转换失败: {str(e)}")
+        # Choose prompt based on tricky test mode
+        if is_tricky_test:
+            initial_message_prompt = f"""你现在要扮演{role}，在以下场景中开始一段对话，提出一个**罕见但仍与建筑工程相关的问题**，该问题应该是边缘案例或非常规情况，通常不会出现在标准规范或知识库中，但听起来仍然合理。
 
-def _generate_conversion_recommendations(extraction_results: Dict, file_size: int) -> List[str]:
-    """Generate recommendations based on extraction results"""
-    recommendations = []
-    
-    successful_methods = [method for method, result in extraction_results.items() if result['success']]
-    
-    if not successful_methods:
-        recommendations.extend([
-            "🚨 所有提取方法均失败，建议:",
-            "1. 使用Microsoft Word打开文档，另存为.txt格式",
-            "2. 检查文档是否包含复杂的图片、表格或特殊格式",
-            "3. 尝试复制文档内容，直接粘贴到评估平台的文本框中",
-            "4. 检查文档是否损坏或使用了不兼容的格式"
-        ])
-    elif len(successful_methods) == 1:
-        best_method = successful_methods[0]
-        best_result = extraction_results[best_method]
-        extraction_ratio = best_result['length'] / file_size * 100 if file_size > 0 else 0
-        
-        if extraction_ratio < 5:
-            recommendations.extend([
-                f"⚠️ 提取率较低 ({extraction_ratio:.1f}%)，建议:",
-                "1. 文档可能包含大量图片或表格，提取的主要是文本内容",
-                "2. 使用Word另存为.txt格式可能获得更好效果",
-                "3. 检查提取的内容是否包含主要信息"
-            ])
-        elif extraction_ratio < 15:
-            recommendations.append("✅ 提取成功，但内容相对较少，建议检查是否提取了主要信息")
-        else:
-            recommendations.append("✅ 提取成功，内容丰富，可以正常使用")
-    else:
-        recommendations.append("✅ 多种方法提取成功，文档处理良好")
-    
-    # Cloud deployment specific recommendations
-    recommendations.extend([
-        "",
-        "💡 云环境部署建议:",
-        "1. 如果在云端遇到问题，优先使用.txt格式",
-        "2. 保持文档内容简洁，避免过于复杂的格式",
-        "3. 定期验证文档处理功能是否正常"
-    ])
-    
-    return recommendations
-
-@app.post("/api/enhanced-document-processing")
-async def enhanced_document_processing(
-    requirement_file: UploadFile = File(None),
-    requirement_text: str = Form(None)
-):
-    """
-    Enhanced document processing with cloud compatibility diagnostics
-    """
-    try:
-        result = {
-            "document_processing": {},
-            "cloud_compatibility": {},
-            "performance_metrics": {},
-            "recommendations": []
-        }
-        
-        if requirement_file and requirement_file.filename:
-            # Process file with enhanced diagnostics
-            start_time = time.time()
-            
-            try:
-                # Check system environment
-                result["cloud_compatibility"] = {
-                    "python_docx_available": True,
-                    "zipfile_available": True,
-                    "xml_parser_available": True,
-                    "temp_file_access": True
-                }
-                
-                # Test dependencies
-                try:
-                    from docx import Document
-                    result["cloud_compatibility"]["python_docx_available"] = True
-                except ImportError:
-                    result["cloud_compatibility"]["python_docx_available"] = False
-                
-                try:
-                    import zipfile
-                    import xml.etree.ElementTree as ET
-                    result["cloud_compatibility"]["zipfile_available"] = True
-                    result["cloud_compatibility"]["xml_parser_available"] = True
-                except ImportError:
-                    result["cloud_compatibility"]["zipfile_available"] = False
-                    result["cloud_compatibility"]["xml_parser_available"] = False
-                
-                # Test temp file access
-                try:
-                    with tempfile.NamedTemporaryFile(delete=True) as test_tmp:
-                        test_tmp.write(b"test")
-                        result["cloud_compatibility"]["temp_file_access"] = True
-                except Exception:
-                    result["cloud_compatibility"]["temp_file_access"] = False
-                
-                # Process document
-                processed_content = await process_uploaded_document_improved(requirement_file)
-                
-                processing_time = time.time() - start_time
-                
-                result["document_processing"] = {
-                    "status": "success" if not processed_content.startswith("错误") else "error",
-                    "filename": requirement_file.filename,
-                    "file_size": len(await requirement_file.read()),  # Read size for metrics
-                    "content_length": len(processed_content),
-                    "content_preview": processed_content[:300] + "..." if len(processed_content) > 300 else processed_content,
-                    "processing_time": processing_time
-                }
-                
-                # Reset file position after reading size
-                await requirement_file.seek(0)
-                
-                result["performance_metrics"] = {
-                    "processing_time_seconds": processing_time,
-                    "extraction_rate": "fast" if processing_time < 2 else "normal" if processing_time < 5 else "slow",
-                    "extraction_ratio": (len(processed_content) / result["document_processing"]["file_size"] * 100) if result["document_processing"]["file_size"] > 0 else 0
-                }
-                
-                # Generate recommendations
-                if result["document_processing"]["status"] == "error":
-                    result["recommendations"].extend([
-                        "🚨 文档处理失败，建议:",
-                        "1. 转换为.txt格式重新上传",
-                        "2. 检查文档是否损坏",
-                        "3. 使用文本内容直接粘贴方式"
-                    ])
-                elif result["performance_metrics"]["extraction_ratio"] < 5:
-                    result["recommendations"].extend([
-                        "⚠️ 提取率较低，建议:",
-                        "1. 检查文档是否主要包含图片或表格",
-                        "2. 考虑使用Word转换为纯文本格式",
-                        "3. 验证提取的内容是否包含关键信息"
-                    ])
-                else:
-                    result["recommendations"].append("✅ 文档处理成功，可以正常使用")
-                
-                # Cloud-specific recommendations
-                if not all(result["cloud_compatibility"].values()):
-                    result["recommendations"].extend([
-                        "",
-                        "🌐 云环境兼容性问题:",
-                        "1. 某些依赖库可能不可用",
-                        "2. 建议使用.txt格式作为备选方案",
-                        "3. 联系管理员检查服务器配置"
-                    ])
-                
-            except Exception as e:
-                result["document_processing"] = {
-                    "status": "error",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                }
-        
-        elif requirement_text:
-            result["document_processing"] = {
-                "status": "success",
-                "source": "text_input",
-                "content_length": len(requirement_text),
-                "content_preview": requirement_text[:300] + "..." if len(requirement_text) > 300 else requirement_text
-            }
-            
-            result["recommendations"].append("✅ 文本内容处理成功")
-        
-        else:
-            result["document_processing"] = {
-                "status": "error",
-                "error": "未提供文件或文本内容"
-            }
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"❌ Enhanced document processing failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"增强文档处理失败: {str(e)}")
-
-async def conduct_optimized_dynamic_conversation(api_config: APIConfig, scenario_info: Dict, user_persona_info: Dict, use_raw_messages: bool = False) -> List[Dict]:
-    """
-    Optimized dynamic conversation: maximum 2 turns to save time
-    Reduced from 3-4 turns to 2 turns while maintaining evaluation quality
-    """
-    try:
-        conversation_history = []
-        conversation_manager = ConversationManager(api_config)
-        failed_turns = 0
-        
-        print(f"🚀 开始动态对话 (最多4轮)")
-        
-        # Generate optimized initial message (faster generation)
-        current_user_message = await generate_quick_initial_message(scenario_info, user_persona_info)
-        
-        if not current_user_message:
-            print("❌ 无法生成初始消息")
-            return []
-        
-        # Conduct 4 turns maximum for comprehensive evaluation
-        for turn_num in range(1, 5):  # Maximum 4 turns
-            try:
-                print(f"🔍 [TURN {turn_num}] 用户消息: {current_user_message}")
-                
-                # Send raw message to AI (no persona enhancement for speed)
-                ai_response = await call_coze_with_strict_timeout(api_config, current_user_message, conversation_manager, True)
-                
-                if not ai_response or len(ai_response.strip()) < 5:
-                    print(f"⚠️ 第{turn_num}轮AI响应为空")
-                    failed_turns += 1
-                    if failed_turns >= 1:  # Stop early if API issues
-                        break
-                    continue
-                
-                # Clean AI response
-                cleaned_response = clean_ai_response(ai_response)
-                if not cleaned_response:
-                    cleaned_response = ai_response  # Use original if cleaning fails
-                
-                # Record conversation turn
-                conversation_history.append({
-                    "turn": turn_num,
-                    "user_message": current_user_message,
-                    "ai_response": cleaned_response
-                })
-                
-                print(f"✅ 第{turn_num}轮完成: {cleaned_response[:50]}...")
-                
-                # Generate next message for turns 1-3 (to get turns 2-4)
-                if turn_num < 4:
-                    current_user_message = await generate_quick_followup_message(
-                        scenario_info, user_persona_info, conversation_history, cleaned_response
-                    )
-                    if not current_user_message or current_user_message.upper() == "END":
-                        print("📞 用户结束对话")
-                        break
-                
-            except Exception as e:
-                print(f"❌ 第{turn_num}轮对话失败: {str(e)}")
-                failed_turns += 1
-                if failed_turns >= 1:
-                    break
-        
-        if not conversation_history:
-            print("❌ 对话完全失败")
-            return []
-        
-        print(f"✅ 动态对话完成，共{len(conversation_history)}轮")
-        return conversation_history
-        
-    except Exception as e:
-        print(f"❌ 优化对话异常: {str(e)}")
-        return []
-
-async def generate_quick_initial_message(scenario_info: Dict, user_persona_info: Dict) -> str:
-    """
-    AI-generated initial message using DeepSeek API for authentic conversation
-    """
-    try:
-        persona = user_persona_info.get('user_persona', {})
-        usage_context = user_persona_info.get('usage_context', {})
-        
-        role = persona.get('role', '用户')
-        business_domain = usage_context.get('business_domain', '专业服务')
-        communication_style = persona.get('communication_style', '专业直接')
-        experience_level = persona.get('experience_level', '有经验')
-        
-        initial_message_prompt = f"""
-你现在要扮演{role}，在以下场景中开始一段对话：
-
-场景背景: {scenario_info.get('context', '专业咨询场景')}
-场景标题: {scenario_info.get('title', '专业咨询')}
-用户画像: {scenario_info.get('user_profile', f'{role}需要专业帮助')}
+场景背景: {scenario_context}
+场景标题: {scenario_title}
 
 你的角色特征:
 - 职业: {role}
@@ -5442,284 +5242,206 @@ async def generate_quick_initial_message(scenario_info: Dict, user_persona_info:
 - 沟通风格: {communication_style}
 - 工作领域: {business_domain}
 
-请生成一句自然的开场白，作为{role}向AI助手提出的第一个问题或请求。要求:
-1. 符合{role}的身份和沟通风格
-2. 体现当前业务场景的特点
-3. 问题要具体但不要过于详细（为后续对话留空间）
-4. 语言自然，像真实的{role}在工作中会说的话
-5. 长度控制在1-2句话内
+请生成一句自然的开场白，提出一个非典型、数据库可能查不到的问题，必须满足：
+1. 与建筑或施工标准有**一定关联**
+2. **不会直接命中已有标准**
+3. 问题要清晰、合理但"刁钻"，如非常规材料/极端场景/过时做法/地方奇特要求
+4. 控制在50字以内
 
-直接输出对话内容，不要其他解释：
-"""
+直接输出对话内容，不要其他解释："""
+        else:
+            initial_message_prompt = f"""你现在要扮演{role}，在以下场景中开始一段对话：
+
+场景背景: {scenario_context}
+场景标题: {scenario_title}
+
+你的角色特征:
+- 职业: {role}
+- 经验水平: {experience_level}  
+- 沟通风格: {communication_style}
+- 工作领域: {business_domain}
+
+请生成一句自然的开场白，作为{role}向AI助手提出的第一个问题或请求。
+要求：
+1. 语言自然，符合{communication_style}的风格
+2. 体现{role}的专业关注点
+3. 与{scenario_title}场景相关
+4. 长度控制在50字以内
+
+直接输出对话内容，不要其他解释："""
+
+        response = await call_deepseek_api_enhanced(
+            initial_message_prompt, 
+            temperature=0.3, 
+            max_tokens=150
+        )
         
-        print("🎭 DeepSeek生成初始对话消息...")
-        response = await call_deepseek_api_enhanced(initial_message_prompt, temperature=0.3, max_tokens=150)
+        # Clean and validate response
+        initial_message = response.strip()
         
-        # Clean the response
-        initial_message = response.strip().replace('"', '').replace("'", '')
+        # Fallback if AI generation fails or is inappropriate
+        if (len(initial_message) > 200 or len(initial_message) < 10 or 
+            not initial_message or "扮演" in initial_message or "生成" in initial_message):
+            
+            # Use domain-specific fallback messages
+            if is_tricky_test:
+                fallback_messages = {
+                    '建筑工程': f"如果在南极建预制板构件的冷接缝处理需要注意什么？",
+                    '金融银行': f"数字货币的资产配置在极端通胀下如何平衡？",
+                    '医疗健康': f"高原缺氧环境下的麻醉用药剂量如何调整？",
+                    '教育培训': f"多语言混合教学的评估体系如何建立？"
+                }
+            else:
+                fallback_messages = {
+                    '建筑工程': f"你好，我是{role}，现场遇到了一些{scenario_title}相关的问题，想咨询一下相关规范要求。",
+                    '金融银行': f"你好，我想了解一下{scenario_title}相关的业务流程和要求。",
+                    '医疗健康': f"你好，关于{scenario_title}方面有些专业问题需要咨询。",
+                    '教育培训': f"你好，想了解{scenario_title}相关的具体要求和标准。"
+                }
+            
+            initial_message = fallback_messages.get(
+                business_domain, 
+                f"你好，我是{role}，想咨询一下{scenario_title}相关的问题。"
+            )
         
-        # Fallback if response is too long or seems incorrect
-        if len(initial_message) > 200 or len(initial_message) < 10:
-            print("⚠️ 初始消息长度异常，使用备用消息")
-            return f"你好，我是{role}，想咨询一下{business_domain}相关的问题"
-        
-        print(f"✅ AI生成初始消息: {initial_message}")
+        mode_label = "🎯刁钻" if is_tricky_test else "📝常规"
+        print(f"✅ {mode_label}生成初始消息: {initial_message[:50]}...")
         return initial_message
         
     except Exception as e:
-        print(f"⚠️ AI初始消息生成失败: {str(e)}")
-        persona = user_persona_info.get('user_persona', {})
-        role = persona.get('role', '用户')
-        return f"你好，我是{role}，想咨询个问题"
+        print(f"❌ 初始消息生成失败: {str(e)}")
+        # Ultimate fallback
+        role = user_persona_info.get('extracted_persona_summary', {}).get('user_persona', {}).get('role', '用户')
+        scenario_title = scenario.get('title', '咨询')
+        return f"你好，我是{role}，想咨询一下{scenario_title}相关的问题。"
 
-async def generate_quick_followup_message(scenario_info: Dict, user_persona_info: Dict, conversation_history: List[Dict], ai_response: str) -> str:
+async def generate_single_initial_message(scenario_info: Dict, user_persona_info: Dict, is_tricky_test: bool = False) -> str:
     """
-    AI-generated followup message using DeepSeek API for authentic conversation continuation
+    Generate single initial message for dynamic conversations
+    Wrapper around generate_quick_initial_message for compatibility
+    """
+    return await generate_quick_initial_message(scenario_info, user_persona_info, is_tricky_test)
+
+async def generate_next_message_based_on_response(
+    scenario_info: Dict, 
+    user_persona_info: Dict, 
+    conversation_history: List[Dict], 
+    ai_response: str,
+    is_tricky_test: bool = False
+) -> str:
+    """
+    Generate next user message based on AI's response
+    Supports both normal and tricky test modes
     """
     try:
-        turn_count = len(conversation_history)
+        # Extract persona information
+        persona_summary = user_persona_info.get('extracted_persona_summary', {})
         persona = user_persona_info.get('user_persona', {})
-        usage_context = user_persona_info.get('usage_context', {})
+        role = persona_summary.get('user_persona', {}).get('role', '工程项目现场监理工程师')
+        communication_style = persona_summary.get('user_persona', {}).get('communication_style', '专业直接')
         
-        role = persona.get('role', '用户')
-        business_domain = usage_context.get('business_domain', '专业服务')
-        communication_style = persona.get('communication_style', '专业直接')
+        # Build conversation context
+        conversation_context = "\n".join([
+            f"用户: {turn['user_message']}\nAI: {turn['ai_response']}" 
+            for turn in conversation_history[-2:]  # Only use last 2 turns for context
+        ])
         
-        # Build conversation context for AI generation
-        conversation_context = "对话历史:\n"
-        for turn in conversation_history:
-            conversation_context += f"第{turn['turn']}轮 - 用户: {turn['user_message']}\n"
-            conversation_context += f"第{turn['turn']}轮 - AI: {turn['ai_response']}\n\n"
-        
-        # Define turn-specific instructions
-        turn_instructions = {
-            1: "询问更具体的细节或澄清问题，展现专业的深入思考",
-            2: "探讨实际操作层面的问题，关注实施难点或注意事项", 
-            3: "进行最终确认或询问补充信息，为实际应用做准备"
-        }
-        
-        current_instruction = turn_instructions.get(turn_count, "进行礼貌的总结和感谢")
-        
-        followup_prompt = f"""
-你是{role}，正在与AI助手进行专业咨询对话。以下是对话历史：
+        # Choose prompt based on tricky test mode
+        if is_tricky_test:
+            followup_prompt = f"""你是{role}，正在与AI助手进行专业咨询对话。以下是对话历史：
 
 {conversation_context}
 
 AI刚才的回应：{ai_response}
 
-你的角色特征:
-- 职业: {role}
-- 沟通风格: {communication_style} 
-- 工作领域: {business_domain}
-- 当前是第{turn_count + 1}轮对话
+现在请你提出一个**新的相关问题**，这个问题仍然要偏向**边缘情况或非主流需求**，可能与极端天气、历史建筑、特殊材料、特殊场景等相关，普通数据库或标准库通常查不到。
 
-根据AI的回应和你的专业背景，生成下一句自然的跟进问题。{current_instruction}
+要求：
+1. 不重复之前问题，但仍保持上下文连贯
+2. 继续以{communication_style}的方式沟通
+3. 提出一个让AI助手更难检索的"刁钻问题"，但必须合理
+4. 长度控制在50字以内
+
+直接输出跟进问题内容，不要其他解释："""
+        else:
+            followup_prompt = f"""你是{role}，正在与AI助手进行专业咨询对话。以下是对话历史：
+
+{conversation_context}
+
+AI刚才的回应：{ai_response}
+
+根据AI的回应和你的专业背景，生成下一句自然的跟进问题。
 
 要求:
 1. 基于AI的具体回应内容进行有针对性的跟进
 2. 体现{role}的专业关注点和思维方式
 3. 语言自然，符合{communication_style}的风格
-4. 问题具体且有助于深入了解
-5. 长度控制在1-2句话
+4. 长度控制在50字以内
 
-直接输出对话内容，不要其他解释：
-"""
+直接输出对话内容，不要其他解释："""
+
+        response = await call_deepseek_api_enhanced(
+            followup_prompt, 
+            temperature=0.4, 
+            max_tokens=120
+        )
         
-        print(f"🎭 DeepSeek生成第{turn_count + 1}轮跟进消息...")
-        response = await call_deepseek_api_enhanced(followup_prompt, temperature=0.4, max_tokens=120)
+        # Clean and validate response
+        next_message = response.strip()
         
-        # Clean the response
-        followup_message = response.strip().replace('"', '').replace("'", '')
+        # Check for conversation end indicators
+        end_indicators = ["谢谢", "明白了", "清楚了", "了解了", "知道了", "好的", "没问题", 
+                         "满意", "解决了", "够了", "足够", "可以了", "ok", "OK", "感谢"]
         
-        # Fallback for different turns if AI generation fails
-        if len(followup_message) > 200 or len(followup_message) < 5:
-            print("⚠️ 跟进消息长度异常，使用备用消息")
-            fallback_messages = {
-                1: "能再详细说明一下具体的操作方法吗？",
-                2: "在实际执行时，需要注意哪些关键点？", 
-                3: "最后确认一下，还有什么特别需要注意的吗？"
-            }
-            return fallback_messages.get(turn_count, "谢谢您的详细解答")
+        if any(indicator in next_message for indicator in end_indicators):
+            return "END"  # Signal to end conversation
         
-        print(f"✅ AI生成跟进消息: {followup_message}")
-        return followup_message
+        # Fallback for inappropriate responses
+        if (len(next_message) > 200 or len(next_message) < 5 or 
+            not next_message or "扮演" in next_message or "生成" in next_message):
+            
+            if is_tricky_test:
+                # Tricky follow-up fallbacks based on business domain
+                business_domain = user_persona_info.get('business_domain', '建筑工程')
+                tricky_followups = {
+                    '建筑工程': "这种极寒地区是否可以跳过二次养护流程？",
+                    '金融银行': "这种配置在战争时期还适用吗？",
+                    '医疗健康': "如果在太空环境下这个剂量要如何调整？",
+                    '教育培训': "这套体系对认知障碍学生是否有效？"
+                }
+                next_message = tricky_followups.get(business_domain, "还有其他特殊情况需要考虑吗？")
+            else:
+                # Standard follow-up fallbacks
+                fallback_questions = [
+                    "还有其他需要注意的细节吗？",
+                    "请详细说明具体的操作要求。",
+                    "有没有相关的检测标准？",
+                    "这方面还有什么规范要求？"
+                ]
+                next_message = fallback_questions[len(conversation_history) % len(fallback_questions)]
+        
+        mode_label = "🎯刁钻" if is_tricky_test else "📝常规"
+        print(f"✅ {mode_label}生成跟进消息: {next_message[:50]}...")
+        return next_message
         
     except Exception as e:
-        print(f"⚠️ AI跟进消息生成失败: {str(e)}")
-        # Simple fallback based on turn count
-        fallback_messages = {
-            1: "能再详细说明一下吗？",
-            2: "还有其他需要注意的吗？",
-            3: "明白了，谢谢"
-        }
-        return fallback_messages.get(len(conversation_history), "谢谢")
+        print(f"❌ 跟进消息生成失败: {str(e)}")
+        return "还有其他需要了解的吗？"
 
-async def evaluate_conversation_optimized(
-    conversation_history: List[Dict], 
-    scenario_info: Dict, 
-    requirement_context: str = "", 
-    user_persona_info: Dict = None
-) -> tuple:
+def get_score_grade(score: float) -> str:
     """
-    Full conversation evaluation with all standard dimensions
-    Maintains evaluation quality while benefiting from other optimizations
+    Convert numerical score (0-100) to Chinese grade label
     """
-    try:
-        print("🧠 开始完整评估...")
-        
-        # Build conversation context
-        conversation_text = "完整对话记录:\n"
-        for turn in conversation_history:
-            conversation_text += f"第{turn['turn']}轮:\n"
-            conversation_text += f"用户: {turn['user_message']}\n"
-            conversation_text += f"AI回答: {turn['ai_response']}\n\n"
-        
-        # Build evaluation context
-        context_section = f"""
-业务场景: {scenario_info.get('context', '通用AI助手场景')}
-对话主题: {scenario_info.get('title', '')}
-"""
-        
-        # Add persona information if available
-        if user_persona_info:
-            persona = user_persona_info.get('user_persona', {})
-            context_section += f"""
-用户角色: {persona.get('role', '')}
-经验水平: {persona.get('experience_level', '')}
-沟通风格: {persona.get('communication_style', '')}
-工作环境: {persona.get('work_environment', '')}
-"""
-        
-        if requirement_context:
-            context_section += f"\n需求文档上下文:\n{requirement_context[:800]}"
-        
-        # Enhanced evaluation with detailed explanations
-        evaluation_scores = {}
-        detailed_explanations = {}
-        
-        # Full evaluation dimensions (original 3-4 dimensions)
-        dimensions = {
-            "fuzzy_understanding": "模糊理解与追问能力",
-            "answer_correctness": "回答准确性与专业性",
-            "persona_alignment": "用户适配度"
-        }
-        
-        if requirement_context:
-            dimensions["goal_alignment"] = "目标对齐度"
-        
-        base_context = f"{context_section}\n\n{conversation_text}"
-        
-        for dimension, dimension_name in dimensions.items():
-            try:
-                if dimension == "fuzzy_understanding":
-                    eval_prompt = f"""
-{base_context}
-
-请评估AI在模糊理解与追问能力方面的表现。
-
-评分标准 (1-100分):
-20分以下: 完全无法理解模糊表达，直接给出错误或无关回答
-20-40分: 理解错误且未主动追问，可能误导用户
-40-60分: 部分理解但引导不足，仅给出部分有用信息
-60-80分: 基本理解模糊表达且有一定引导，但追问不够深入
-80-100分: 准确理解模糊表达并有效引导用户澄清需求
-
-请给出具体评分和详细理由:
-"""
-                elif dimension == "answer_correctness":
-                    eval_prompt = f"""
-{base_context}
-
-请评估AI回答的准确性与专业性。
-
-评分标准 (1-100分):
-20分以下: 回答错误，包含危险信息或严重误导
-20-40分: 表面看起来合理但核心内容错误
-40-60分: 大部分正确但有明显缺漏或不够准确
-60-80分: 基本准确专业但缺少规范引用或细节
-80-100分: 完全准确且专业，有规范依据和实用指导
-
-请给出具体评分和详细理由:
-"""
-                elif dimension == "persona_alignment":
-                    eval_prompt = f"""
-{base_context}
-
-请评估AI与用户画像的匹配度。
-
-评分标准 (1-100分):
-20分以下: 沟通风格完全不符合用户背景
-20-40分: 用词过于专业或过于简单，用户难以理解
-40-60分: 基本可以理解但存在术语使用不当
-60-80分: 沟通风格基本合适，偶有不匹配
-80-100分: 完全贴合用户角色和沟通偏好
-
-请给出具体评分和详细理由:
-"""
-                elif dimension == "goal_alignment":
-                    eval_prompt = f"""
-{base_context}
-
-基于提供的需求文档，请评估AI是否达成了预期的目标对齐度。
-
-评分标准 (1-100分):
-20分以下: 完全偏离需求目标，未解决任何关键问题
-20-40分: 部分相关但未达成主要目标
-40-60分: 基本符合需求但有重要遗漏
-60-80分: 很好地满足了大部分需求目标
-80-100分: 完美对齐所有需求目标，超出预期
-
-请给出具体评分和详细理由:
-"""
-                
-                response = await call_deepseek_api_enhanced(eval_prompt, temperature=0.2, max_tokens=500)
-                
-                # Extract score (now on 100-point scale)
-                score = extract_score_from_response(response)
-                evaluation_scores[dimension] = score
-                
-                # Parse structured response with enhanced detail
-                parsed_analysis = parse_evaluation_response_enhanced(response, score)
-                
-                # Store detailed explanation with enhanced structure
-                detailed_explanations[dimension] = {
-                    "score": score,
-                    "score_out_of": 100,
-                    "detailed_analysis": parsed_analysis.get("detailed_analysis", response),
-                    "specific_quotes": parsed_analysis.get("specific_quotes", ""),
-                    "improvement_suggestions": parsed_analysis.get("improvement_suggestions", ""),
-                    "comprehensive_evaluation": parsed_analysis.get("comprehensive_evaluation", ""),
-                    "dimension_name": dimension_name,
-                    "full_response": response,
-                    "score_grade": get_score_grade(score)
-                }
-                
-                print(f"  ✅ {dimension_name}: {score}/100 ({get_score_grade(score)})")
-                
-            except Exception as e:
-                print(f"  ❌ {dimension_name}评估失败: {str(e)}")
-                evaluation_scores[dimension] = 60.0
-                detailed_explanations[dimension] = {
-                    "score": 60.0,
-                    "score_out_of": 100,
-                    "detailed_analysis": f"评估失败: {str(e)}，请重新尝试评估",
-                    "specific_quotes": "由于技术原因，无法提供具体对话引用",
-                    "improvement_suggestions": "建议检查AI Agent配置后重新评估",
-                    "comprehensive_evaluation": "技术问题导致评估中断",
-                    "dimension_name": dimension_name,
-                    "full_response": f"评估异常: {str(e)}",
-                    "score_grade": "及格"
-                }
-        
-        # Calculate overall score (now average of 100-point scores)
-        scenario_score = sum(evaluation_scores.values()) / len(evaluation_scores) if evaluation_scores else 60.0
-        
-        print(f"✅ 完整评估完成，场景得分: {scenario_score:.1f}/100")
-        return evaluation_scores, detailed_explanations, scenario_score
-        
-    except Exception as e:
-        print(f"❌ 完整评估失败: {str(e)}")
-        return {"fuzzy_understanding": 60.0, "answer_correctness": 60.0, "persona_alignment": 60.0}, {}, 60.0
+    if score >= 90:
+        return "优秀"
+    elif score >= 80:
+        return "良好"
+    elif score >= 70:
+        return "中等"
+    elif score >= 60:
+        return "及格"
+    else:
+        return "不及格"
 
 if __name__ == "__main__":
     import sys

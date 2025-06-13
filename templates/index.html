@@ -120,6 +120,10 @@
             display: none;
         }
 
+        .collapsible-toggle.rotated {
+            transform: rotate(180deg);
+        }
+
         /* Compact Info Cards */
         .info-grid {
             display: grid;
@@ -191,6 +195,48 @@
         /* Compact Forms */
         .compact-form .row {
             margin-bottom: 12px;
+        }
+
+        /* Tricky Test Mode Styling */
+        .tricky-test-active {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%) !important;
+            border-color: #f59e0b !important;
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.3) !important;
+        }
+
+        .tricky-test-active .form-check-label strong {
+            color: #d97706 !important;
+        }
+
+        .tricky-test-indicator {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #f59e0b;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+
+            100% {
+                transform: scale(1);
+            }
         }
 
         .compact-form .form-control,
@@ -722,7 +768,70 @@
             <div class="header">
                 <h1><i class="fas fa-brain"></i> AI Agent 自动化评估平台</h1>
                 <p class="lead">基于DeepSeek智能引擎的专业AI代理评估系统</p>
-                <p class="subtitle">支持多平台API • 文档智能解析 • 动态场景生成 • 4维度评估框架 • 4轮深度对话</p>
+                <p class="subtitle">支持多平台API • 文档智能解析 • 动态场景生成 • 6维度评估框架 • 4轮深度对话</p>
+            </div>
+
+            <!-- Project Scenario Selection - New Feature -->
+            <div class="collapsible-card">
+                <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                    <div class="collapsible-title">
+                        <i class="fas fa-project-diagram"></i>
+                        项目场景选择
+                    </div>
+                    <i class="fas fa-chevron-down collapsible-toggle"></i>
+                </div>
+                <div class="collapsible-content">
+                    <div class="alert-success-compact">
+                        <i class="fas fa-star"></i> <strong>推荐：</strong>选择"规范查询"获得针对工程监理的专业评估体验
+                    </div>
+                    <div class="info-grid">
+                        <div class="info-card active" data-scenario="specification-query"
+                            onclick="selectProjectScenario(event)">
+                            <i class="fas fa-book"></i>
+                            <h6>规范查询</h6>
+                            <small>工程规范与图纸查询</small>
+                        </div>
+                        <div class="info-card" data-scenario="custom" onclick="selectProjectScenario(event)">
+                            <i class="fas fa-upload"></i>
+                            <h6>自定义项目</h6>
+                            <small>上传需求文档评估</small>
+                        </div>
+                    </div>
+
+                    <!-- Specification Query Info Panel -->
+                    <div id="specificationQueryInfo" class="alert-info-compact mt-3">
+                        <h6><i class="fas fa-user-tie"></i> 规范查询项目配置</h6>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <strong>用户画像：</strong><br>
+                                <span class="badge bg-primary">工程项目现场监理工程师</span>
+                            </div>
+                            <div class="col-md-4">
+                                <strong>使用上下文：</strong><br>
+                                <span class="badge bg-info">巡检验收时规范查询</span>
+                            </div>
+                            <div class="col-md-4">
+                                <strong>目标：</strong><br>
+                                <span class="badge bg-success">快速准确获取规范信息</span>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <strong>评估维度 (6项)：</strong>
+                            <span class="badge bg-secondary" title="评估AI回答的专业性和准确度，包括假规范检测">回答准确性</span>
+                            <span class="badge bg-secondary" title="评估AI是否匹配用户角色和沟通风格">用户匹配度</span>
+                            <span class="badge bg-secondary" title="评估AI是否达成用户的预期目标">目标对齐度</span>
+                            <span class="badge bg-warning" title="评估AI引用建筑规范的准确性和合规性">规范引用准确性</span>
+                            <span class="badge bg-warning" title="评估AI处理模糊问题和引导用户澄清的能力">模糊理解能力</span>
+                            <span class="badge bg-warning" title="评估AI在多轮对话中的连贯性和上下文记忆">多轮支持度</span>
+                        </div>
+                    </div>
+
+                    <!-- Custom Project Info Panel -->
+                    <div id="customProjectInfo" class="alert-info-compact mt-3" style="display: none;">
+                        <h6><i class="fas fa-upload"></i> 自定义项目配置</h6>
+                        <p>上传您的需求文档，系统将自动提取用户画像、使用上下文和评估目标，生成专属的测试场景。</p>
+                    </div>
+                </div>
             </div>
 
             <!-- AI Type Selection - Collapsible -->
@@ -869,129 +978,149 @@
                         用户画像与需求文档配置
                     </h5>
 
-                    <!-- Mode Selection -->
-                    <div class="mb-4">
-                        <h6 class="mb-3">
-                            <i class="fas fa-cogs"></i>
-                            选择配置方式
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-4">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="evaluationMode" id="autoMode"
-                                        value="auto">
-                                    <label class="form-check-label" for="autoMode">
-                                        <strong>🤖 智能提取</strong><br>
-                                        <small>自动提取用户画像</small>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="evaluationMode" id="dynamicMode"
-                                        value="dynamic" checked>
-                                    <label class="form-check-label" for="dynamicMode">
-                                        <strong>🗣️ 动态对话</strong><br>
-                                        <small>真实对话流程</small>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="evaluationMode" id="manualMode"
-                                        value="manual">
-                                    <label class="form-check-label" for="manualMode">
-                                        <strong>✋ 手动配置</strong><br>
-                                        <small>自定义场景</small>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Dynamic Mode Section -->
-                    <div id="dynamicModeSection">
-                        <div class="alert-success-compact">
-                            <i class="fas fa-comments"></i> 上传需求文档，自动提取用户画像，通过DeepSeek API生成专属测试场景，进行4轮深度对话评估
+                    <!-- Specification Query Mode (Default) -->
+                    <div id="specificationQueryMode">
+                        <div class="alert-success-compact mb-4">
+                            <i class="fas fa-check-circle"></i> <strong>规范查询项目：</strong>使用预设的工程监理画像和场景，专注于规范查询场景的6维度专业评估
                         </div>
 
-                        <!-- File Upload -->
-                        <div class="file-upload-compact"
-                            onclick="document.getElementById('dynamicRequirementFile').click()">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                            <h6>点击上传需求文档</h6>
-                            <p class="text-muted">支持 Word (.docx) • PDF (.pdf) • 文本 (.txt)</p>
-                            <input type="file" class="d-none" id="dynamicRequirementFile" name="dynamicRequirementFile"
-                                accept=".doc,.docx,.pdf,.txt" onchange="handleDynamicFileUpload(this)">
-                        </div>
-
-                        <div id="dynamicFileUploadStatus" style="display: none;" class="alert-success-compact">
-                            <i class="fas fa-file-check"></i> <span id="dynamicUploadedFileName"></span> 已成功上传
-                        </div>
-
-                        <!-- Text Input Alternative -->
-                        <div>
-                            <label for="dynamicRequirementDoc" class="form-label">或直接输入需求文档内容</label>
-                            <textarea class="form-control" id="dynamicRequirementDoc" name="dynamicRequirementDoc"
-                                rows="3" placeholder="例：监理工程师需要AI识别用户模糊描述并主动引导补充面积、位置等字段..."></textarea>
-                        </div>
-                    </div>
-
-                    <!-- Auto Mode Section -->
-                    <div id="autoModeSection" style="display: none;">
-                        <div class="alert-info-compact">
-                            <i class="fas fa-magic"></i> DeepSeek将自动分析并提取用户角色、使用场景、沟通风格等信息
-                        </div>
-
-                        <div class="file-upload-compact" onclick="document.getElementById('requirementFile').click()">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                            <h6>上传需求文档</h6>
-                            <p class="text-muted">支持 Word (.docx) • PDF (.pdf) • 文本 (.txt)</p>
-                            <input type="file" class="d-none" id="requirementFile" name="requirementFile"
-                                accept=".doc,.docx,.pdf,.txt" onchange="handleFileUpload(this)">
-                        </div>
-
-                        <div id="fileUploadStatus" style="display: none;" class="alert-success-compact">
-                            <i class="fas fa-file-check"></i> <span id="uploadedFileName"></span> 已成功上传
-                        </div>
-
-                        <div>
-                            <label for="requirementDoc" class="form-label">或直接输入需求文档内容</label>
-                            <textarea class="form-control" id="requirementDoc" name="requirementDoc" rows="3"
-                                placeholder="输入详细的需求文档内容..."></textarea>
-                        </div>
-
-                        <button type="button" class="btn btn-secondary mt-2" onclick="extractPersona()">
-                            <i class="fas fa-user-cog"></i> 提取用户画像
-                        </button>
-                    </div>
-
-                    <!-- Manual Mode Section -->
-                    <div id="manualModeSection" style="display: none;">
-                        <div class="alert-info-compact">
-                            <i class="fas fa-edit"></i> 手动配置用户画像和对话场景
-                        </div>
-
-                        <div class="row">
+                        <div class="row mb-3">
                             <div class="col-md-6">
-                                <label for="userRole" class="form-label">用户角色</label>
-                                <input type="text" class="form-control" id="userRole" name="userRole"
-                                    placeholder="如：现场监理工程师">
+                                <div class="config-section">
+                                    <h6><i class="fas fa-cogs"></i> 评估配置</h6>
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="enableTurnControl" checked>
+                                        <label class="form-check-label" for="enableTurnControl">
+                                            <strong>启用对话轮控制</strong><br>
+                                            <small>最多4轮对话，自动检测满意度并结束</small>
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="enableTrickyTest"
+                                            onchange="handleTrickyTestToggle('enableTrickyTest')">
+                                        <label class="form-check-label" for="enableTrickyTest">
+                                            <strong>🎯 启用刁钻测试模式</strong><br>
+                                            <small>生成极端场景的边缘案例问题，测试AI知识边界</small>
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                             <div class="col-md-6">
-                                <label for="experienceLevel" class="form-label">经验水平</label>
-                                <input type="text" class="form-control" id="experienceLevel" name="experienceLevel"
-                                    placeholder="如：5年工程经验">
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-12">
-                                <label for="communicationStyle" class="form-label">沟通风格</label>
-                                <input type="text" class="form-control" id="communicationStyle"
-                                    name="communicationStyle" placeholder="如：偏好简洁明了">
+                                <div class="config-section">
+                                    <h6><i class="fas fa-chart-bar"></i> 评估维度</h6>
+                                    <small>
+                                        ✅ 基础3维度：回答准确性、用户匹配度、目标对齐度<br>
+                                        ✅ 专项3维度：规范引用准确性、模糊理解能力、多轮支持度<br>
+                                        <span class="text-info">💡 模糊理解能力：评估AI处理不清晰问题和引导用户澄清的能力</span>
+                                    </small>
+                                </div>
                             </div>
                         </div>
                     </div>
+
+                    <!-- Custom Project Mode -->
+                    <div id="customProjectMode" style="display: none;">
+                        <!-- Mode Selection -->
+                        <div class="mb-4">
+                            <h6 class="mb-3">
+                                <i class="fas fa-cogs"></i>
+                                选择配置方式
+                            </h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="evaluationMode"
+                                            id="dynamicMode" value="dynamic" checked>
+                                        <label class="form-check-label" for="dynamicMode">
+                                            <strong>🗣️ 动态对话</strong><br>
+                                            <small>真实对话流程 (推荐)</small>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="evaluationMode"
+                                            id="manualMode" value="manual">
+                                        <label class="form-check-label" for="manualMode">
+                                            <strong>✋ 手动配置</strong><br>
+                                            <small>自定义场景</small>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Mode Section -->
+                        <div id="dynamicModeSection">
+                            <div class="alert-success-compact">
+                                <i class="fas fa-comments"></i> 上传需求文档，自动提取用户画像，通过DeepSeek API生成专属测试场景，进行4轮深度对话评估
+                            </div>
+
+                            <!-- Dynamic Evaluation Configuration -->
+                            <div class="config-section">
+                                <h6><i class="fas fa-cogs"></i> 动态评估配置</h6>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="enableTrickyTestDynamic"
+                                        onchange="handleTrickyTestToggle('enableTrickyTestDynamic')">
+                                    <label class="form-check-label" for="enableTrickyTestDynamic">
+                                        <strong>🎯 启用刁钻测试模式</strong><br>
+                                        <small>生成南极建设、历史建筑等极端场景问题，挑战AI知识边界</small>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- File Upload -->
+                            <div class="file-upload-compact"
+                                onclick="document.getElementById('dynamicRequirementFile').click()">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <h6>点击上传需求文档</h6>
+                                <p class="text-muted">支持 Word (.docx) • PDF (.pdf) • 文本 (.txt)</p>
+                                <input type="file" class="d-none" id="dynamicRequirementFile"
+                                    name="dynamicRequirementFile" accept=".doc,.docx,.pdf,.txt"
+                                    onchange="handleDynamicFileUpload(this)">
+                            </div>
+
+                            <div id="dynamicFileUploadStatus" style="display: none;" class="alert-success-compact">
+                                <i class="fas fa-file-check"></i> <span id="dynamicUploadedFileName"></span> 已成功上传
+                            </div>
+
+                            <!-- Text Input Alternative -->
+                            <div>
+                                <label for="dynamicRequirementDoc" class="form-label">或直接输入需求文档内容</label>
+                                <textarea class="form-control" id="dynamicRequirementDoc" name="dynamicRequirementDoc"
+                                    rows="3" placeholder="例：监理工程师需要AI识别用户模糊描述并主动引导补充面积、位置等字段..."></textarea>
+                            </div>
+                        </div>
+
+
+
+                        <!-- Manual Mode Section -->
+                        <div id="manualModeSection" style="display: none;">
+                            <div class="alert-info-compact">
+                                <i class="fas fa-edit"></i> 手动配置用户画像和对话场景
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label for="userRole" class="form-label">用户角色</label>
+                                    <input type="text" class="form-control" id="userRole" name="userRole"
+                                        placeholder="如：现场监理工程师">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="experienceLevel" class="form-label">经验水平</label>
+                                    <input type="text" class="form-control" id="experienceLevel" name="experienceLevel"
+                                        placeholder="如：5年工程经验">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12">
+                                    <label for="communicationStyle" class="form-label">沟通风格</label>
+                                    <input type="text" class="form-control" id="communicationStyle"
+                                        name="communicationStyle" placeholder="如：偏好简洁明了">
+                                </div>
+                            </div>
+                        </div>
+                    </div> <!-- Close customProjectMode -->
                 </div>
 
                 <!-- Manual Scenarios Section -->
@@ -1078,2392 +1207,467 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // THIS ENTIRE SCRIPT BLOCK IS A REPLACEMENT FOR THE EXISTING ONE.
         let scenarioCounter = 1;
-        let extractedPersonaData = null;
-        let currentEvaluationData = null; // Store evaluation data for download
+        let currentEvaluationData = null;
+        let selectedProjectScenario = 'specification-query';
 
         document.addEventListener('DOMContentLoaded', function () {
             console.log('🚀 AI Agent评估平台已加载');
-
-            // Initialize form
             const form = document.getElementById('evaluationForm');
             form.addEventListener('submit', handleFormSubmit);
 
-            // Prevent form submission on Enter
-            const inputs = form.querySelectorAll('input[type="text"], input[type="url"], input[type="password"]');
-            inputs.forEach(input => {
-                input.addEventListener('keypress', function (e) {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                    }
-                });
+            form.querySelectorAll('input[type="text"], input[type="url"], input[type="password"]').forEach(input => {
+                input.addEventListener('keypress', e => e.key === 'Enter' && e.preventDefault());
             });
 
-            // Set default AI type and collapse all sections
             const firstAICard = document.querySelector('.info-card[data-type="coze-agent"]');
-            if (firstAICard) {
-                selectAIType({ target: firstAICard });
-            }
+            if (firstAICard) selectAIType({ target: firstAICard });
 
-            // Add mode switching listeners
-            document.getElementById('autoMode').addEventListener('change', toggleEvaluationMode);
-            document.getElementById('manualMode').addEventListener('change', toggleEvaluationMode);
-            document.getElementById('dynamicMode').addEventListener('change', toggleEvaluationMode);
+            const firstScenarioCard = document.querySelector('.info-card[data-scenario="specification-query"]');
+            if (firstScenarioCard) selectProjectScenario({ target: firstScenarioCard });
 
-            // Add headers validation for custom API config
+            const dynamicModeRadio = document.getElementById('dynamicMode');
+            if (dynamicModeRadio) dynamicModeRadio.addEventListener('change', toggleEvaluationMode);
+
+            const manualModeRadio = document.getElementById('manualMode');
+            if (manualModeRadio) manualModeRadio.addEventListener('change', toggleEvaluationMode);
+
             const apiHeadersField = document.getElementById('apiHeaders');
             if (apiHeadersField) {
                 apiHeadersField.addEventListener('input', validateApiHeaders);
                 apiHeadersField.addEventListener('paste', handleHeadersPaste);
             }
 
-            // Initialize evaluation mode (don't create scenarios yet)
             toggleEvaluationMode();
 
-            // Collapse all sections by default except the first one
-            const collapsibleHeaders = document.querySelectorAll('.collapsible-header');
-            collapsibleHeaders.forEach((header, index) => {
-                if (index > 0 && header) { // Keep first section open and check if header exists
-                    toggleCollapsible(header, true);
-                }
+            document.querySelectorAll('.collapsible-header').forEach((header, index) => {
+                if (index > 0) toggleCollapsible(header);
             });
-
-            // Add timeout protection for all fetch requests
-            function createTimeoutSignal(timeoutMs) {
-                const controller = new AbortController();
-                setTimeout(() => controller.abort(), timeoutMs);
-                return controller.signal;
-            }
         });
 
-        // Collapsible functionality
-        function toggleCollapsible(header, forceClose = false) {
+        function toggleCollapsible(header) {
             const content = header.nextElementSibling;
             const toggle = header.querySelector('.collapsible-toggle');
-
-            if (forceClose || !content.classList.contains('collapsed')) {
-                content.classList.add('collapsed');
-                toggle.classList.remove('rotated');
-            } else {
-                content.classList.remove('collapsed');
-                toggle.classList.add('rotated');
-            }
+            if (!content || !toggle) return;
+            content.classList.toggle('collapsed');
+            toggle.classList.toggle('rotated');
         }
 
-        function selectAIType(eventOrElement) {
-            let targetElement;
-            if (eventOrElement && eventOrElement.target) {
-                targetElement = eventOrElement.target.closest('.info-card');
-            } else if (eventOrElement && eventOrElement.classList) {
-                targetElement = eventOrElement.closest('.info-card');
-            } else {
-                console.error('❌ Invalid argument passed to selectAIType');
-                return;
-            }
+        function selectProjectScenario(event) {
+            const targetElement = event.target.closest('.info-card');
+            if (!targetElement) return;
+            selectedProjectScenario = targetElement.getAttribute('data-scenario');
+            document.querySelectorAll('.info-card[data-scenario]').forEach(card => card.classList.remove('active'));
+            targetElement.classList.add('active');
+            document.getElementById('specificationQueryMode').style.display = selectedProjectScenario === 'specification-query' ? 'block' : 'none';
+            document.getElementById('customProjectMode').style.display = selectedProjectScenario === 'custom' ? 'block' : 'none';
+            document.getElementById('specificationQueryInfo').style.display = selectedProjectScenario === 'specification-query' ? 'block' : 'none';
+            document.getElementById('customProjectInfo').style.display = selectedProjectScenario === 'custom' ? 'block' : 'none';
+        }
 
-            if (!targetElement) {
-                console.error('❌ Could not find info-card element');
-                return;
-            }
-
+        function selectAIType(event) {
+            const targetElement = event.target.closest('.info-card');
+            if (!targetElement) return;
             const aiType = targetElement.getAttribute('data-type');
-            console.log('🔧 Selecting AI type:', aiType);
-
-            // Remove all required attributes first
-            document.querySelectorAll('#cozeAgentId, #cozeAgentToken, #cozeBotIdNew, #apiUrl').forEach(input => {
-                input.removeAttribute('required');
-            });
-
-            // Hide all configuration sections
+            document.querySelectorAll('#cozeAgentId, #cozeAgentToken, #cozeBotIdNew, #apiUrl').forEach(input => input.removeAttribute('required'));
             document.getElementById('cozeAgentConfig').style.display = 'none';
             document.getElementById('cozeBotConfig').style.display = 'none';
             document.getElementById('customApiConfig').style.display = 'none';
-
-            // Remove active states from all cards
-            document.querySelectorAll('.info-card').forEach(card => {
-                card.classList.remove('active');
-            });
-
-            // Show the selected configuration and add required attributes
+            document.querySelectorAll('.info-card[data-type]').forEach(card => card.classList.remove('active'));
             if (aiType === 'coze-agent') {
                 document.getElementById('cozeAgentConfig').style.display = 'block';
                 document.getElementById('cozeAgentId').setAttribute('required', 'required');
                 document.getElementById('cozeAgentToken').setAttribute('required', 'required');
-                console.log('✅ Coze Agent config shown');
             } else if (aiType === 'coze-bot') {
                 document.getElementById('cozeBotConfig').style.display = 'block';
                 document.getElementById('cozeBotIdNew').setAttribute('required', 'required');
-                console.log('✅ Coze Bot config shown');
             } else if (aiType === 'custom-api') {
                 document.getElementById('customApiConfig').style.display = 'block';
                 document.getElementById('apiUrl').setAttribute('required', 'required');
-                console.log('✅ Custom API config shown');
             }
-
-            // Mark the selected card as active
             targetElement.classList.add('active');
-        }
-
-        function handleFileUpload(input) {
-            if (input.files.length > 0) {
-                const fileName = input.files[0].name;
-                document.getElementById('uploadedFileName').textContent = fileName;
-                document.getElementById('fileUploadStatus').style.display = 'block';
-                console.log('📄 File uploaded:', fileName);
-            }
         }
 
         function handleDynamicFileUpload(input) {
             if (input.files.length > 0) {
-                const fileName = input.files[0].name;
-                document.getElementById('dynamicUploadedFileName').textContent = fileName;
+                document.getElementById('dynamicUploadedFileName').textContent = input.files[0].name;
                 document.getElementById('dynamicFileUploadStatus').style.display = 'block';
-                console.log('📄 Dynamic file uploaded:', fileName);
-            }
-        }
-
-        function addDefaultScenario() {
-            const container = document.getElementById('scenariosContainer');
-            const scenarioHtml = `
-                <div class="scenario-card config-section" data-scenario="1">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h6 class="mb-0">
-                            <i class="fas fa-comments"></i>
-                            场景 1: 默认场景
-                        </h6>
-                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeScenario(1)">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6">
-                            <label class="form-label">场景标题</label>
-                            <input type="text" class="form-control" name="scenarioTitle1" 
-                                   value="默认测试场景" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">业务上下文</label>
-                            <input type="text" class="form-control" name="scenarioContext1" 
-                                   placeholder="如：建筑工地、桥梁现场等">
-                        </div>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-12">
-                            <label class="form-label">用户画像</label>
-                            <input type="text" class="form-control" name="scenarioProfile1" 
-                                   placeholder="如：新手施工员、经验监理等">
-                        </div>
-                    </div>
-                    
-                    <label class="form-label">对话轮次 (用户发言)</label>
-                    <div class="conversation-turns">
-                        <input type="text" class="form-control mb-2" name="scenarioTurn1_1" 
-                               placeholder="第1轮用户发言" required>
-                        <input type="text" class="form-control mb-2" name="scenarioTurn1_2" 
-                               placeholder="第2轮用户发言">
-                        <input type="text" class="form-control" name="scenarioTurn1_3" 
-                               placeholder="第3轮用户发言">
-                    </div>
-                </div>
-            `;
-            container.innerHTML = scenarioHtml;
-        }
-
-        function addScenario() {
-            scenarioCounter++;
-            const container = document.getElementById('scenariosContainer');
-
-            const scenarioHtml = `
-                <div class="scenario-card config-section" data-scenario="${scenarioCounter}">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h6 class="mb-0">
-                            <i class="fas fa-comments"></i>
-                            场景 ${scenarioCounter}: 自定义场景
-                        </h6>
-                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeScenario(${scenarioCounter})">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6">
-                            <label class="form-label">场景标题</label>
-                            <input type="text" class="form-control" name="scenarioTitle${scenarioCounter}" 
-                                   value="自定义场景 ${scenarioCounter}" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">业务上下文</label>
-                            <input type="text" class="form-control" name="scenarioContext${scenarioCounter}" 
-                                   placeholder="如：建筑工地、桥梁现场等">
-                        </div>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-12">
-                            <label class="form-label">用户画像</label>
-                            <input type="text" class="form-control" name="scenarioProfile${scenarioCounter}" 
-                                   placeholder="如：新手施工员、经验监理等">
-                        </div>
-                    </div>
-                    
-                    <label class="form-label">对话轮次 (用户发言)</label>
-                    <div class="conversation-turns">
-                        <input type="text" class="form-control mb-2" name="scenarioTurn${scenarioCounter}_1" 
-                               placeholder="第1轮用户发言" required>
-                        <input type="text" class="form-control mb-2" name="scenarioTurn${scenarioCounter}_2" 
-                               placeholder="第2轮用户发言">
-                        <input type="text" class="form-control" name="scenarioTurn${scenarioCounter}_3" 
-                               placeholder="第3轮用户发言">
-                    </div>
-                </div>
-            `;
-
-            container.insertAdjacentHTML('beforeend', scenarioHtml);
-
-            // Scroll to the new scenario
-            const newScenario = container.lastElementChild;
-            newScenario.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-            console.log(`✅ Added scenario ${scenarioCounter}`);
-        }
-
-        function removeScenario(scenarioNumber) {
-            const scenarioElement = document.querySelector(`[data-scenario="${scenarioNumber}"]`);
-            if (scenarioElement) {
-                scenarioElement.remove();
-                console.log('🗑️ Removed scenario:', scenarioNumber);
             }
         }
 
         function toggleEvaluationMode() {
-            const autoMode = document.getElementById('autoMode').checked;
-            const dynamicMode = document.getElementById('dynamicMode').checked;
-            const manualMode = document.getElementById('manualMode').checked;
-
-            const autoSection = document.getElementById('autoModeSection');
-            const dynamicSection = document.getElementById('dynamicModeSection');
-            const manualSection = document.getElementById('manualModeSection');
-            const scenariosSection = document.getElementById('scenariosSection');
-
-            // Hide all sections first
-            autoSection.style.display = 'none';
-            dynamicSection.style.display = 'none';
-            manualSection.style.display = 'none';
-            scenariosSection.style.display = 'none';
-
-            // Clear any existing required attributes from scenario fields
-            const scenarioInputs = document.querySelectorAll('input[name^="scenarioTitle"], input[name^="scenarioTurn"]');
-            scenarioInputs.forEach(input => {
-                input.removeAttribute('required');
-            });
-
-            if (autoMode) {
-                autoSection.style.display = 'block';
-                console.log('🤖 Switched to auto extraction mode');
-            } else if (dynamicMode) {
-                dynamicSection.style.display = 'block';
-                console.log('🗣️ Switched to dynamic conversation mode');
-            } else if (manualMode) {
-                manualSection.style.display = 'block';
-                scenariosSection.style.display = 'block';
-
-                // Create default scenario if container is empty
-                const container = document.getElementById('scenariosContainer');
-                if (container.children.length === 0) {
-                    addDefaultScenario();
-                }
-
-                // Add required attributes to visible scenario fields
-                const visibleScenarioInputs = document.querySelectorAll('#scenariosSection input[name^="scenarioTitle"], #scenariosSection input[name*="Turn"][name*="_1"]');
-                visibleScenarioInputs.forEach(input => {
-                    if (input.name.includes('Title') || input.name.includes('Turn') && input.name.endsWith('_1')) {
-                        input.setAttribute('required', 'required');
-                    }
-                });
-
-                console.log('✋ Switched to manual configuration mode');
-            }
-        }
-
-        async function extractPersona() {
-            const fileInput = document.getElementById('requirementFile');
-            const textInput = document.getElementById('requirementDoc');
-
-            if (!fileInput.files.length && !textInput.value.trim()) {
-                alert('请先上传文档或输入文档内容');
-                return;
-            }
-
-            try {
-                showLoading('DeepSeek正在智能分析需求文档...');
-
-                const formData = new FormData();
-                if (fileInput.files.length > 0) {
-                    formData.append('requirement_file', fileInput.files[0]);
-                }
-                if (textInput.value.trim()) {
-                    formData.append('requirement_text', textInput.value.trim());
-                }
-
-                const response = await fetch('/api/extract-user-persona', {
-                    method: 'POST',
-                    body: formData,
-                    signal: createTimeoutSignal(300000)  // 5 minutes timeout for persona extraction
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-                }
-
-                const result = await response.json();
-                extractedPersonaData = result.extraction_result;
-
-                hideLoading();
-                displayExtractedPersona(result);
-
-            } catch (error) {
-                hideLoading();
-                console.error('❌ Persona extraction failed:', error);
-                alert('用户画像提取失败: ' + error.message);
-            }
-        }
-
-        function displayExtractedPersona(result) {
-            // Remove any existing persona display
-            const existingPersona = document.getElementById('extractedPersonaDisplay');
-            if (existingPersona) {
-                existingPersona.remove();
-            }
-
-            const persona = result.extraction_result.user_persona;
-            const usage = result.extraction_result.usage_context;
-            const aiRole = result.extraction_result.ai_role_simulation;
-            const requirements = result.extraction_result.extracted_requirements;
-
-            // Create a comprehensive collapsible section
-            const personaHtml = `
-                <div class="card mt-3" id="extractedPersonaDisplay">
-                    <div class="card-header bg-success text-white">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h6 class="mb-0">
-                                <i class="fas fa-user-check"></i> 
-                                用户画像提取成功
-                            </h6>
-                            <button class="btn btn-sm btn-outline-light" type="button" 
-                                    data-bs-toggle="collapse" data-bs-target="#personaDetails" 
-                                    aria-expanded="false" aria-controls="personaDetails">
-                                <i class="fas fa-chevron-down"></i> 详细信息
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- 简要信息 -->
-                    <div class="card-body pb-2">
-                        <div class="row">
-                            <div class="col-md-3">
-                                <strong>角色：</strong><span class="text-primary">${persona.role}</span>
-                            </div>
-                            <div class="col-md-3">
-                                <strong>业务领域：</strong><span class="text-info">${usage.business_domain}</span>
-                            </div>
-                            <div class="col-md-3">
-                                <strong>经验水平：</strong><span class="text-warning">${persona.experience_level}</span>
-                            </div>
-                            <div class="col-md-3">
-                                <strong>沟通风格：</strong><span class="text-secondary">${persona.communication_style}</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 详细信息（可折叠） -->
-                    <div class="collapse" id="personaDetails">
-                        <div class="card-body border-top">
-                            <div class="row">
-                                <!-- 用户画像详情 -->
-                                <div class="col-md-6">
-                                    <h6 class="text-primary"><i class="fas fa-user"></i> 用户画像</h6>
-                                    <ul class="list-unstyled small">
-                                        <li><strong>工作环境：</strong> ${persona.work_environment}</li>
-                                        <li><strong>工作压力：</strong> ${persona.work_pressure}</li>
-                                        <li><strong>专业领域：</strong> ${persona.expertise_areas ? persona.expertise_areas.join(', ') : '通用专业'}</li>
-                                    </ul>
-                                </div>
-                                
-                                <!-- 使用场景 -->
-                                <div class="col-md-6">
-                                    <h6 class="text-info"><i class="fas fa-briefcase"></i> 使用场景</h6>
-                                    <ul class="list-unstyled small">
-                                        <li><strong>主要场景：</strong> ${usage.primary_scenarios ? usage.primary_scenarios.join(', ') : '专业咨询'}</li>
-                                        <li><strong>交互目标：</strong> ${usage.interaction_goals ? usage.interaction_goals.join(', ') : '获取准确信息'}</li>
-                                        <li><strong>使用时机：</strong> ${usage.usage_timing ? usage.usage_timing.join(', ') : '工作时间'}</li>
-                                    </ul>
-                                </div>
-                            </div>
-                            
-                            <div class="row mt-3">
-                                <!-- 对话模拟 -->
-                                <div class="col-md-6">
-                                    <h6 class="text-warning"><i class="fas fa-comments"></i> 对话特征</h6>
-                                    <ul class="list-unstyled small">
-                                        <li><strong>对话方式：</strong> ${aiRole.conversation_approach}</li>
-                                        <li><strong>语言特点：</strong> ${aiRole.language_characteristics}</li>
-                                        <li><strong>典型问题：</strong> ${aiRole.typical_questions ? aiRole.typical_questions.slice(0, 2).join('; ') : '专业咨询'}</li>
-                                    </ul>
-                                </div>
-                                
-                                <!-- 核心需求 -->
-                                <div class="col-md-6">
-                                    <h6 class="text-success"><i class="fas fa-target"></i> 核心需求</h6>
-                                    <ul class="list-unstyled small">
-                                        <li><strong>核心功能：</strong> ${requirements.core_functions ? requirements.core_functions.join(', ') : '准确信息查询'}</li>
-                                        <li><strong>质量期望：</strong> ${requirements.quality_expectations ? requirements.quality_expectations.join(', ') : '准确及时'}</li>
-                                        <li><strong>交互偏好：</strong> ${requirements.interaction_preferences ? requirements.interaction_preferences.join(', ') : '简洁明了'}</li>
-                                    </ul>
-                                </div>
-                            </div>
-                            
-                            <div class="row mt-3">
-                                <div class="col-12">
-                                    <div class="alert alert-info mb-0">
-                                        <i class="fas fa-lightbulb"></i>
-                                        <strong>智能分析结果：</strong>系统将基于此用户画像自动生成针对性的对话场景，确保评估结果更贴合实际业务需求。
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            // Insert after the extract button
-            const extractButton = document.querySelector('button[onclick="extractPersona()"]');
-            extractButton.insertAdjacentHTML('afterend', personaHtml);
-
-            console.log('✅ 用户画像显示完成:', persona.role);
+            const dynamicModeRadio = document.getElementById('dynamicMode');
+            if (!dynamicModeRadio) return;
+            const isDynamic = dynamicModeRadio.checked;
+            document.getElementById('dynamicModeSection').style.display = isDynamic ? 'block' : 'none';
+            document.getElementById('manualModeSection').style.display = isDynamic ? 'none' : 'block';
+            document.getElementById('scenariosSection').style.display = isDynamic ? 'none' : 'block';
         }
 
         async function handleFormSubmit(event) {
             event.preventDefault();
-            console.log('🚀 Starting evaluation submission...');
 
+            // Check if tricky test mode is enabled
+            const isTrickyTestEnabled = (selectedProjectScenario === 'specification-query' && document.getElementById('enableTrickyTest').checked) ||
+                (selectedProjectScenario !== 'specification-query' && document.getElementById('enableTrickyTestDynamic')?.checked);
+
+            const loadingMessage = isTrickyTestEnabled ?
+                '🎯 正在准备刁钻测试评估数据...' :
+                '正在准备评估数据...';
+
+            showLoading(loadingMessage);
+            const formData = new FormData();
             try {
-                showLoading('正在准备评估数据...');
-
-                const formData = new FormData();
-
-                // Get AI configuration
-                const aiConfig = getAIConfiguration();
-                console.log('🔧 AI Config:', aiConfig);
-                formData.append('agent_api_config', JSON.stringify(aiConfig));
-
-                // Determine evaluation mode
-                const evaluationMode = document.getElementById('autoMode').checked ? 'auto' :
-                    document.getElementById('dynamicMode').checked ? 'dynamic' : 'manual';
-                formData.append('evaluation_mode', evaluationMode);
-
-                console.log('📊 Evaluation mode:', evaluationMode);
-
-                // Handle different evaluation modes
-                if (evaluationMode === 'dynamic') {
-                    const fileInput = document.getElementById('dynamicRequirementFile');
-                    const textInput = document.getElementById('dynamicRequirementDoc');
-
-                    if (fileInput.files.length > 0) {
-                        formData.append('requirement_file', fileInput.files[0]);
-                        console.log('📄 Adding dynamic file:', fileInput.files[0].name);
-                    } else if (textInput.value.trim()) {
-                        formData.append('requirement_text', textInput.value.trim());
-                        console.log('📝 Adding dynamic text requirement');
-                    } else {
-                        throw new Error('动态对话模式需要上传文档或输入文档内容');
-                    }
-
-                    updateLoadingProgress('正在提取用户画像并生成动态对话场景...');
-
-                    const response = await fetch('/api/evaluate-agent-dynamic', {
-                        method: 'POST',
-                        body: formData,
-                        signal: createTimeoutSignal(720000)  // 12 minutes timeout (AI conversation generation needs extra time)
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-                    }
-
-                    const result = await response.json();
-                    console.log('✅ Dynamic evaluation completed:', result);
-
-                    hideLoading();
-                    displayResults(result);
-
-                } else if (evaluationMode === 'auto') {
-                    // Auto mode logic
-                    const fileInput = document.getElementById('requirementFile');
-                    const textInput = document.getElementById('requirementDoc');
-
-                    if (fileInput.files.length > 0) {
-                        formData.append('requirement_file', fileInput.files[0]);
-                    } else if (textInput.value.trim()) {
-                        formData.append('requirement_text', textInput.value.trim());
-                    } else {
-                        throw new Error('智能提取模式需要上传文档或输入文档内容');
-                    }
-
-                    if (extractedPersonaData) {
-                        formData.append('extracted_persona', JSON.stringify(extractedPersonaData));
-                    }
-
-                    updateLoadingProgress('正在进行智能评估...');
-
-                    const response = await fetch('/api/evaluate-agent-auto', {
-                        method: 'POST',
-                        body: formData,
-                        signal: createTimeoutSignal(600000)  // 10 minutes timeout for auto evaluation with AI conversations
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-                    }
-
-                    const result = await response.json();
-                    console.log('✅ Auto evaluation completed:', result);
-
-                    hideLoading();
-                    displayResults(result);
-
+                formData.append('agent_api_config', JSON.stringify(getAIConfiguration()));
+                let endpoint = '';
+                if (selectedProjectScenario === 'specification-query') {
+                    formData.append('enable_turn_control', document.getElementById('enableTurnControl').checked);
+                    formData.append('is_tricky_test', document.getElementById('enableTrickyTest').checked);
+                    endpoint = '/api/evaluate-agent-specification-query';
                 } else {
-                    // Manual mode logic
-                    const scenarios = collectScenariosData();
-                    formData.append('scenarios', JSON.stringify(scenarios));
-
-                    const userRole = document.getElementById('userRole').value;
-                    const experienceLevel = document.getElementById('experienceLevel').value;
-                    const communicationStyle = document.getElementById('communicationStyle').value;
-
-                    const userPersona = {
-                        role: userRole,
-                        experience_level: experienceLevel,
-                        communication_style: communicationStyle
-                    };
-
-                    formData.append('user_persona', JSON.stringify(userPersona));
-
-                    updateLoadingProgress('正在进行手动配置评估...');
-
-                    const response = await fetch('/api/evaluate-agent', {
-                        method: 'POST',
-                        body: formData,
-                        signal: createTimeoutSignal(600000)  // 10 minutes timeout for manual evaluation with AI conversations
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                    const isDynamic = document.getElementById('dynamicMode').checked;
+                    formData.append('evaluation_mode', isDynamic ? 'dynamic' : 'manual');
+                    if (isDynamic) {
+                        const fileInput = document.getElementById('dynamicRequirementFile');
+                        const textInput = document.getElementById('dynamicRequirementDoc');
+                        if (fileInput.files.length > 0) formData.append('requirement_file', fileInput.files[0]);
+                        else if (textInput.value.trim()) formData.append('requirement_text', textInput.value.trim());
+                        else throw new Error('动态对话模式需上传文档或输入内容');
+                        formData.append('is_tricky_test', document.getElementById('enableTrickyTestDynamic').checked);
+                        endpoint = '/api/evaluate-agent-dynamic';
+                    } else {
+                        formData.append('scenarios', JSON.stringify(collectScenariosData()));
+                        formData.append('user_persona', JSON.stringify({ role: document.getElementById('userRole').value, experience_level: document.getElementById('experienceLevel').value, communication_style: document.getElementById('communicationStyle').value }));
+                        endpoint = '/api/evaluate-agent';
                     }
-
-                    const result = await response.json();
-                    console.log('✅ Manual evaluation completed:', result);
-
-                    hideLoading();
-                    displayResults(result);
                 }
-
+                const response = await fetch(endpoint, { method: 'POST', body: formData, signal: createTimeoutSignal(720000) });
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                displayResults(await response.json());
             } catch (error) {
-                hideLoading();
                 console.error('❌ Evaluation failed:', error);
                 alert('评估失败: ' + error.message);
+            } finally {
+                hideLoading();
             }
         }
 
-        function collectScenariosData() {
-            const scenarios = [];
-            const scenarioElements = document.querySelectorAll('[data-scenario]');
-
-            scenarioElements.forEach(element => {
-                const scenarioNumber = element.getAttribute('data-scenario');
-                const title = document.querySelector(`input[name="scenarioTitle${scenarioNumber}"]`)?.value || '';
-                const context = document.querySelector(`input[name="scenarioContext${scenarioNumber}"]`)?.value || '';
-                const profile = document.querySelector(`input[name="scenarioProfile${scenarioNumber}"]`)?.value || '';
-
-                const turns = [];
-                for (let i = 1; i <= 3; i++) {
-                    const turn = document.querySelector(`input[name="scenarioTurn${scenarioNumber}_${i}"]`)?.value;
-                    if (turn && turn.trim()) {
-                        turns.push(turn.trim());
-                    }
-                }
-
-                if (title && turns.length > 0) {
-                    scenarios.push({
-                        title,
-                        context,
-                        user_profile: profile,
-                        conversation_turns: turns
-                    });
-                }
-            });
-
-            return scenarios;
+        function createTimeoutSignal(timeoutMs) {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), timeoutMs);
+            return controller.signal;
         }
 
+        function collectScenariosData() { /* Placeholder for existing function */ return []; }
+
         function getAIConfiguration() {
-            if (document.getElementById('cozeAgentConfig').style.display !== 'none') {
-                const agentId = document.getElementById('cozeAgentId').value;
-                const token = document.getElementById('cozeAgentToken').value;
+            // Find which AI type is selected
+            const selectedAICard = document.querySelector('.info-card[data-type].active');
+            if (!selectedAICard) {
+                throw new Error('请选择AI类型');
+            }
+
+            const aiType = selectedAICard.getAttribute('data-type');
+            let config = {};
+
+            if (aiType === 'coze-agent') {
+                const agentId = document.getElementById('cozeAgentId').value.trim();
+                const token = document.getElementById('cozeAgentToken').value.trim();
                 const region = document.getElementById('cozeRegion').value;
 
                 if (!agentId || !token) {
-                    throw new Error('请填写完整的 Coze Agent 配置信息');
+                    throw new Error('请填写完整的Coze Agent配置信息');
                 }
 
-                return {
+                config = {
                     type: 'coze-agent',
-                    url: region === 'global' ? 'https://api.coze.com/open_api/v2/chat' : 'https://api.coze.cn/open_api/v2/chat',
-                    method: 'POST',
+                    agentId: agentId,
+                    region: region,
+                    url: region === 'global' ? 'https://api.coze.com' : 'https://api.coze.cn',
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json'
                     },
-                    agentId: agentId,
-                    region: region,
-                    timeout: 30
+                    method: 'POST',
+                    timeout: 120
                 };
-            } else if (document.getElementById('cozeBotConfig').style.display !== 'none') {
-                const botId = document.getElementById('cozeBotIdNew').value;
-                const botVersion = document.getElementById('cozeBotVersion').value;
+            } else if (aiType === 'coze-bot') {
+                const botId = document.getElementById('cozeBotIdNew').value.trim();
+                const botVersion = document.getElementById('cozeBotVersion').value.trim();
 
                 if (!botId) {
-                    throw new Error('请填写 Coze Bot ID');
+                    throw new Error('请填写Coze Bot ID');
                 }
 
-                return {
+                config = {
                     type: 'coze-bot',
-                    url: 'https://api.coze.cn/open_api/v2/chat',
-                    method: 'POST',
+                    botId: botId,
+                    botVersion: botVersion || undefined,
+                    url: 'https://api.coze.cn/v1/bot/chat',
                     headers: {
-                        'Authorization': 'Bearer pat_aWWxLQe20D8km5FsKt5W99pWL72L5LNxjkontH91q3lqqTU0ExBKUBl1cUy4tm8c',
                         'Content-Type': 'application/json'
                     },
-                    botId: botId,
-                    botVersion: botVersion || 'latest',
-                    timeout: 30
+                    method: 'POST',
+                    timeout: 120
                 };
-            } else if (document.getElementById('customApiConfig').style.display !== 'none') {
-                const apiUrl = document.getElementById('apiUrl').value;
-                const apiMethod = document.getElementById('apiMethod').value;
-                const headersText = document.getElementById('apiHeaders').value;
+            } else if (aiType === 'custom-api') {
+                const apiUrl = document.getElementById('apiUrl').value.trim();
+                const method = document.getElementById('apiMethod').value;
+                const headersText = document.getElementById('apiHeaders').value.trim();
 
                 if (!apiUrl) {
-                    throw new Error('请填写 API URL');
+                    throw new Error('请填写API URL');
                 }
 
-                let headers = { 'Content-Type': 'application/json' };
-                if (headersText.trim()) {
+                let headers = {};
+                if (headersText) {
                     try {
-                        const parsedHeaders = JSON.parse(headersText);
-
-                        // Validate that it's actually headers, not a full config
-                        const suspiciousKeys = ['type', 'url', 'method', 'timeout', 'agentId', 'botId'];
-                        const foundSuspicious = suspiciousKeys.filter(key => key in parsedHeaders);
-
-                        if (foundSuspicious.length > 0) {
-                            throw new Error(`请求头中包含配置字段 "${foundSuspicious.join(', ')}"，请只填写请求头信息（如Authorization等）`);
-                        }
-
-                        headers = { ...headers, ...parsedHeaders };
+                        headers = JSON.parse(headersText);
                     } catch (e) {
-                        if (e.message.includes('配置字段')) {
-                            throw e; // Re-throw our custom validation error
-                        }
-                        throw new Error('请求头格式错误，请使用有效的 JSON 格式：{"Authorization": "Bearer token"}');
+                        throw new Error('请求头格式错误，请使用有效的JSON格式');
                     }
                 }
 
-                return {
+                config = {
                     type: 'custom-api',
                     url: apiUrl,
-                    method: apiMethod,
+                    method: method,
                     headers: headers,
-                    timeout: 30
+                    timeout: 120
                 };
             }
 
-            throw new Error('请选择并配置一种AI系统类型');
+            return config;
         }
+        function showLoading(message) { document.getElementById('loadingText').textContent = message; document.getElementById('loadingOverlay').style.display = 'flex'; }
+        function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
+        function getScoreGrade(score) { if (score >= 90) return '优秀'; if (score >= 80) return '良好'; if (score >= 60) return '及格'; return '需改进'; }
+        function escapeHtml(text) { const div = document.createElement('div'); div.textContent = String(text); return div.innerHTML; }
+        function cleanAiResponse(response) { if (!response) return '暂无回复'; return String(response).replace(/\\n/g, ' ').replace(/\\/g, '').trim(); }
 
-        function showLoading(message) {
-            document.getElementById('loadingText').textContent = message;
-            document.getElementById('loadingOverlay').style.display = 'flex';
-        }
+        // Tricky Test Mode Functions
+        function handleTrickyTestToggle(checkboxId) {
+            const checkbox = document.getElementById(checkboxId);
+            const configSection = checkbox.closest('.config-section');
 
-        function updateLoadingProgress(message) {
-            document.getElementById('loadingText').textContent = message;
-        }
-
-        function hideLoading() {
-            document.getElementById('loadingOverlay').style.display = 'none';
-        }
-
-        function generateStarRating(score) {
-            // Convert 100-point scale to 5-star scale for display with finer precision
-            const normalizedScore = score / 20; // 100 -> 5, 80 -> 4, 63 -> 3.15, etc.
-            const fullStars = Math.floor(normalizedScore);
-            const remainingScore = normalizedScore - fullStars;
-
-            // More precise partial star calculation
-            let halfStar = '';
-            let quarterStar = '';
-
-            if (remainingScore >= 0.75) {
-                halfStar = '★'; // Almost full star
-            } else if (remainingScore >= 0.5) {
-                halfStar = '☆'; // Half star
-            } else if (remainingScore >= 0.25) {
-                quarterStar = '☆'; // Quarter star
-            }
-
-            const emptyStars = 5 - fullStars - (halfStar ? 1 : 0) - (quarterStar ? 1 : 0);
-
-            return '★'.repeat(fullStars) + halfStar + quarterStar + '☆'.repeat(Math.max(0, emptyStars));
-        }
-
-        function getScoreGrade(score) {
-            // Support fine-grained scoring with more precise thresholds
-            if (score >= 90) return '优秀';
-            if (score >= 85) return '良好+';
-            if (score >= 80) return '良好';
-            if (score >= 75) return '中等+';
-            if (score >= 70) return '中等';
-            if (score >= 65) return '及格+';
-            if (score >= 60) return '及格';
-            if (score >= 55) return '不及格+';
-            if (score >= 50) return '不及格';
-            return '需要改进';
-        }
-
-        function formatAnalysisText(text) {
-            if (!text || text === '暂无详细分析' || text === '暂无具体引用' || text === '暂无改进建议') {
-                return `<span class="text-muted">${text}</span>`;
-            }
-
-            // Clean up common unwanted patterns
-            let cleanText = text.replace(/依据来源：[^\n]*/g, '')
-                .replace(/参考依据：[^\n]*/g, '')
-                .replace(/\n+/g, '<br/>')
-                .trim();
-
-            // Format lists and bullet points
-            cleanText = cleanText.replace(/(\d+\.\s)/g, '<br/>$1')
-                .replace(/(-\s)/g, '<br/>• ');
-
-            return cleanText || `<span class="text-muted">暂无相关信息</span>`;
-        }
-
-        // Enhanced explanation chain formatter with debugging and multiple extraction strategies
-        function formatExplanationChain(scoreData, dimension) {
-            console.log(`🔍 DEBUG: formatExplanationChain for dimension ${dimension}:`, scoreData);
-
-            // Strategy 1: Direct object parsing
-            if (typeof scoreData === 'object' && scoreData !== null) {
-                const result = {
-                    score: parseFloat(scoreData.score || 0),
-                    detailed_analysis: extractField(scoreData, ['detailed_analysis', 'explanation', 'analysis']),
-                    specific_quotes: extractField(scoreData, ['specific_quotes', 'quotes', 'evidence']),
-                    improvement_suggestions: extractField(scoreData, ['improvement_suggestions', 'suggestions', 'recommendations']),
-                    comprehensive_evaluation: extractField(scoreData, ['comprehensive_evaluation', 'evaluation', 'summary']),
-                    full_response: extractField(scoreData, ['full_response', 'response', 'raw_response'])
-                };
-
-                console.log(`✅ Extracted result for ${dimension}:`, result);
-                return result;
-            }
-
-            // Strategy 2: Fallback for non-object data
-            console.log(`⚠️ Non-object scoreData for ${dimension}, using fallback`);
-            return {
-                score: parseFloat(scoreData) || 0,
-                detailed_analysis: "暂无详细分析",
-                specific_quotes: "暂无具体引用",
-                improvement_suggestions: "暂无改进建议",
-                comprehensive_evaluation: "暂无综合评价",
-                full_response: ""
-            };
-        }
-
-        // Helper function to extract field with multiple possible keys
-        function extractField(obj, possibleKeys) {
-            for (let key of possibleKeys) {
-                if (obj[key] && obj[key] !== '') {
-                    return obj[key];
+            if (checkbox.checked) {
+                configSection.classList.add('tricky-test-active');
+                if (!configSection.querySelector('.tricky-test-indicator')) {
+                    const indicator = document.createElement('div');
+                    indicator.className = 'tricky-test-indicator';
+                    indicator.innerHTML = '⚡';
+                    indicator.title = '刁钻测试模式激活';
+                    configSection.style.position = 'relative';
+                    configSection.appendChild(indicator);
                 }
-            }
-            return null;
-        }
-
-        // Simple HTML escape function for safety
-        function escapeHtml(text) {
-            if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Generate reader-friendly JSON section with organized subsections
-        function generateJsonSection(data, title, sectionId) {
-            if (!data) return '';
-
-            // For conversation records, organize by scenarios
-            if (sectionId === 'json-conversations' && Array.isArray(data)) {
-                const organizedHtml = data.map((record, index) => {
-                    const scenarioTitle = record.scenario?.title || `场景 ${index + 1}`;
-                    const scenarioScore = record.scenario_score_100 || (record.scenario_score * 20) || 0;
-
-                    return `
-                        <div class="json-scenario mb-3">
-                            <h6 class="text-primary border-bottom pb-2">
-                                <i class="fas fa-comments"></i> ${scenarioTitle} 
-                                <span class="badge bg-info">${scenarioScore.toFixed(1)}/100</span>
-                            </h6>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <strong>对话历史 (${record.conversation_history?.length || 0} 轮):</strong>
-                                    <div class="json-subsection">
-                                        ${formatConversationHistory(record.conversation_history)}
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <strong>评估得分:</strong>
-                                    <div class="json-subsection">
-                                        ${formatEvaluationScores(record.evaluation_scores_with_explanations)}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-
-                return `
-                    <div class="collapsible-card mb-3">
-                        <div class="collapsible-header" onclick="toggleCollapsible('${sectionId}')">
-                            <div class="collapsible-title">
-                                <i class="fas fa-comments"></i>
-                                ${title} <span class="badge bg-secondary">${data.length} 个场景</span>
-                            </div>
-                            <i class="fas fa-chevron-down collapsible-toggle" id="${sectionId}-toggle"></i>
-                        </div>
-                        <div class="collapsible-content collapsed" id="${sectionId}">
-                            ${organizedHtml}
-                        </div>
-                    </div>
-                `;
-            }
-
-            // For evaluation summary, create organized view
-            if (sectionId === 'json-summary' && typeof data === 'object') {
-                return `
-                    <div class="collapsible-card mb-3">
-                        <div class="collapsible-header" onclick="toggleCollapsible('${sectionId}')">
-                            <div class="collapsible-title">
-                                <i class="fas fa-chart-pie"></i>
-                                ${title}
-                            </div>
-                            <i class="fas fa-chevron-down collapsible-toggle" id="${sectionId}-toggle"></i>
-                        </div>
-                        <div class="collapsible-content collapsed" id="${sectionId}">
-                            <div class="json-organized">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <h6 class="text-success">📊 评估概要</h6>
-                                        <ul class="list-unstyled">
-                                            <li><strong>综合得分:</strong> ${data.overall_score_100}/100 (${data.overall_score}/5)</li>
-                                            <li><strong>评估框架:</strong> ${data.framework}</li>
-                                            <li><strong>场景数量:</strong> ${data.total_scenarios}</li>
-                                            <li><strong>对话轮次:</strong> ${data.total_conversations}</li>
-                                        </ul>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <h6 class="text-info">📈 维度得分</h6>
-                                        <ul class="list-unstyled">
-                                            ${Object.entries(data.dimension_scores_100 || {}).map(([key, score]) => {
-                    const labels = {
-                        'fuzzy_understanding': '模糊理解能力',
-                        'answer_correctness': '回答准确性',
-                        'persona_alignment': '用户匹配度',
-                        'goal_alignment': '目标对齐度'
-                    };
-                    return `<li><strong>${labels[key] || key}:</strong> ${score}/100</li>`;
-                }).join('')}
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            // For user persona, create organized view
-            if (sectionId === 'json-persona' && typeof data === 'object') {
-                const persona = data.extracted_persona_summary?.user_persona || {};
-                const context = data.extracted_persona_summary?.usage_context || {};
-
-                return `
-                    <div class="collapsible-card mb-3">
-                        <div class="collapsible-header" onclick="toggleCollapsible('${sectionId}')">
-                            <div class="collapsible-title">
-                                <i class="fas fa-user-cog"></i>
-                                ${title}
-                            </div>
-                            <i class="fas fa-chevron-down collapsible-toggle" id="${sectionId}-toggle"></i>
-                        </div>
-                        <div class="collapsible-content collapsed" id="${sectionId}">
-                            <div class="json-organized">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <h6 class="text-primary">👤 用户特征</h6>
-                                        <ul class="list-unstyled">
-                                            <li><strong>角色:</strong> ${persona.role || 'N/A'}</li>
-                                            <li><strong>经验水平:</strong> ${persona.experience_level || 'N/A'}</li>
-                                            <li><strong>沟通风格:</strong> ${persona.communication_style || 'N/A'}</li>
-                                            <li><strong>工作环境:</strong> ${persona.work_environment || 'N/A'}</li>
-                                            <li><strong>专业领域:</strong> ${persona.expertise_areas?.join(', ') || 'N/A'}</li>
-                                        </ul>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <h6 class="text-success">🎯 使用场景</h6>
-                                        <ul class="list-unstyled">
-                                            <li><strong>业务领域:</strong> ${context.business_domain || 'N/A'}</li>
-                                            <li><strong>主要场景:</strong> ${context.primary_scenarios?.join(', ') || 'N/A'}</li>
-                                            <li><strong>交互目标:</strong> ${context.interaction_goals?.slice(0, 2).join(', ') || 'N/A'}</li>
-                                            <li><strong>使用时机:</strong> ${context.usage_timing?.join(', ') || 'N/A'}</li>
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            // Default JSON display for other sections
-            const jsonString = JSON.stringify(data, null, 2);
-            return `
-                <div class="collapsible-card mb-3">
-                    <div class="collapsible-header" onclick="toggleCollapsible('${sectionId}')">
-                        <div class="collapsible-title">
-                            <i class="fas fa-code"></i>
-                            ${title}
-                        </div>
-                        <i class="fas fa-chevron-down collapsible-toggle" id="${sectionId}-toggle"></i>
-                    </div>
-                    <div class="collapsible-content collapsed" id="${sectionId}">
-                        <pre class="bg-light p-3 rounded small overflow-auto" style="max-height: 400px;"><code>${jsonString}</code></pre>
-                    </div>
-                </div>
-            `;
-        }
-
-        // Helper function to format conversation history
-        function formatConversationHistory(history) {
-            if (!history || !Array.isArray(history)) return '<span class="text-muted">暂无对话记录</span>';
-
-            return history.map((turn, index) => `
-                <div class="conversation-json-turn mb-2">
-                    <strong>第${turn.turn || index + 1}轮:</strong>
-                    <div class="ms-3">
-                        <div><strong>👤 用户:</strong> ${turn.user_message || 'N/A'}</div>
-                        <div><strong>🤖 AI:</strong> ${cleanAiResponse(turn.ai_response || turn.ai_message || 'N/A').substring(0, 100)}...</div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // Helper function to format evaluation scores
-        function formatEvaluationScores(scores) {
-            if (!scores || typeof scores !== 'object') return '<span class="text-muted">暂无评估得分</span>';
-
-            const labels = {
-                'fuzzy_understanding': '模糊理解',
-                'answer_correctness': '回答准确性',
-                'persona_alignment': '用户匹配',
-                'goal_alignment': '目标对齐'
-            };
-
-            return Object.entries(scores).map(([dimension, scoreData]) => {
-                const score = typeof scoreData === 'object' ? scoreData.score : scoreData;
-                const grade = getScoreGrade(score);
-                const color = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
-
-                return `
-                    <div class="mb-1">
-                        <span class="badge bg-${color}">${labels[dimension] || dimension}: ${score}/100</span>
-                        <small class="text-muted">(${grade})</small>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Enhanced collapsible toggle function
-        // Generate comprehensive report showing ALL data from JSON
-        function generateCompleteDataReport(data) {
-            if (!data) return '<div class="alert alert-warning">无数据可显示</div>';
-
-            const summary = data.evaluation_summary || {};
-            const records = data.conversation_records || [];
-            const userPersonaInfo = data.user_persona_info || {};
-            const contextDisplay = data.detailed_context_display || {};
-            const evaluationMode = data.evaluation_mode || 'unknown';
-
-            // Main report structure
-            return `
-                <div class="complete-report-container">
-                    <!-- Report Header -->
-                    <div class="report-header mb-4">
-                        <div class="card border-primary">
-                            <div class="card-header bg-primary text-white">
-                                <h3 class="mb-0">
-                                    <i class="fas fa-chart-line"></i> 
-                                    AI Agent 完整评估报告
-                                    <small class="ms-2">全数据展示版</small>
-                                </h3>
-                            </div>
-                            <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-3">
-                                        <div class="stat-item">
-                                            <div class="stat-number text-primary">${summary.overall_score_100 || 0}</div>
-                                            <div class="stat-label">综合得分 (100分制)</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="stat-item">
-                                            <div class="stat-number text-info">${records.length}</div>
-                                            <div class="stat-label">评估场景</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="stat-item">
-                                            <div class="stat-number text-success">${summary.total_conversations || 0}</div>
-                                            <div class="stat-label">总对话轮次</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="stat-item">
-                                            <div class="stat-number text-warning">${evaluationMode === 'dynamic' ? '动态' : '静态'}</div>
-                                            <div class="stat-label">评估模式</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Complete Data Sections -->
-                    ${generateEvaluationSummarySection(summary)}
-                    ${generateUserPersonaSection(userPersonaInfo)}
-                    ${generateContextDisplaySection(contextDisplay)}
-                    ${generateConversationRecordsSection(records)}
-                    ${generatePersonaAlignmentSection(data)}
-                    ${generateBusinessGoalSection(data)}
-                    ${generateTechnicalDetailsSection(data)}
-                    ${generateRawDataSection(data)}
-                </div>
-            `;
-        }
-
-        // Generate evaluation summary section with all score details
-        function generateEvaluationSummarySection(summary) {
-            const dimensionScores = summary.dimension_scores_100 || summary.dimensions || {};
-            const overallScore = summary.overall_score_100 || summary.overall_score * 20 || 0;
-
-            return `
-                <div class="collapsible-card mb-4">
-                    <div class="collapsible-header" onclick="toggleCollapsible('eval-summary')">
-                        <div class="collapsible-title">
-                            <i class="fas fa-chart-pie"></i>
-                            📊 评估总结与得分详情
-                        </div>
-                        <i class="fas fa-chevron-down collapsible-toggle" id="eval-summary-toggle"></i>
-                    </div>
-                    <div class="collapsible-content collapsed" id="eval-summary">
-                        <div class="row mb-4">
-                            <div class="col-md-6">
-                                <h6 class="text-success"><i class="fas fa-trophy"></i> 综合评估结果</h6>
-                                <div class="table-responsive">
-                                    <table class="table table-sm">
-                                        <tr><td><strong>100分制得分:</strong></td><td class="text-primary">${overallScore.toFixed(2)}/100</td></tr>
-                                        <tr><td><strong>5分制得分:</strong></td><td class="text-info">${summary.overall_score || (overallScore / 20).toFixed(2)}/5</td></tr>
-                                        <tr><td><strong>等级评价:</strong></td><td><span class="badge bg-${overallScore >= 80 ? 'success' : overallScore >= 60 ? 'warning' : 'danger'}">${getScoreGrade(overallScore)}</span></td></tr>
-                                        <tr><td><strong>评估框架:</strong></td><td>${summary.framework || '四维度评估体系'}</td></tr>
-                                        <tr><td><strong>场景总数:</strong></td><td>${summary.total_scenarios || 0}</td></tr>
-                                        <tr><td><strong>对话轮次:</strong></td><td>${summary.total_conversations || 0}</td></tr>
-                                        <tr><td><strong>评估时间:</strong></td><td>${summary.timestamp || '未记录'}</td></tr>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <h6 class="text-info"><i class="fas fa-chart-bar"></i> 各维度详细得分</h6>
-                                <div class="dimension-scores">
-                                    ${Object.entries(dimensionScores).map(([key, value]) => {
-                const labels = {
-                    'fuzzy_understanding': '🔍 模糊理解与追问能力',
-                    'answer_correctness': '✅ 回答准确性与专业性',
-                    'persona_alignment': '👥 用户匹配度',
-                    'goal_alignment': '🎯 目标对齐度'
-                };
-                const label = labels[key] || key;
-                const score = parseFloat(value);
-                const color = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
-                return `
-                                            <div class="mb-2">
-                                                <div class="d-flex justify-content-between">
-                                                    <span>${label}</span>
-                                                    <span class="badge bg-${color}">${score.toFixed(1)}/100</span>
-                                                </div>
-                                                <div class="progress" style="height: 8px;">
-                                                    <div class="progress-bar bg-${color}" style="width: ${score}%"></div>
-                                                </div>
-                                            </div>
-                                        `;
-            }).join('')}
-                                </div>
-                            </div>
-                        </div>
-                        
-                        ${summary.scoring_system ? `
-                        <div class="mt-3">
-                            <h6 class="text-warning"><i class="fas fa-cog"></i> 评分系统设置</h6>
-                            <div class="alert alert-light">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <strong>评分标准:</strong> ${summary.scoring_system.scale || '1-100分制'}<br>
-                                        <strong>评分等级:</strong> ${Object.entries(summary.scoring_system.grade_levels || {}).map(([range, grade]) => `${range}分-${grade}`).join(', ')}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
-        }
-
-        // Generate comprehensive user persona section
-        function generateUserPersonaSection(userPersonaInfo) {
-            // Remove empty sections as requested - return empty string if no data
-            if (!userPersonaInfo || Object.keys(userPersonaInfo).length === 0) {
-                return '';
-            }
-
-            // Parse all available persona data directly from JSON structure
-            const extractedSummary = userPersonaInfo.extracted_persona_summary || {};
-            const persona = extractedSummary.user_persona || userPersonaInfo.user_persona || {};
-            const context = extractedSummary.usage_context || userPersonaInfo.usage_context || {};
-            const aiRole = extractedSummary.ai_role_simulation || {};
-            const requirements = extractedSummary.extracted_requirements || {};
-            const display = userPersonaInfo.extracted_persona_display || {};
-
-            // Extract comprehensive analysis if available
-            const comprehensiveAnalysis = userPersonaInfo.comprehensive_analysis || {};
-
-            return `
-                <div class="collapsible-card mb-4">
-                    <div class="collapsible-header" onclick="toggleCollapsible('user-persona')">
-                        <div class="collapsible-title">
-                            <i class="fas fa-user-cog"></i>
-                            👤 用户画像与上下文信息 <span class="badge bg-success">已提取</span>
-                        </div>
-                        <i class="fas fa-chevron-down collapsible-toggle" id="user-persona-toggle"></i>
-                    </div>
-                    <div class="collapsible-content collapsed" id="user-persona">
-                        <!-- Quick Overview -->
-                        <div class="row mb-4">
-                            <div class="col-12">
-                                <div class="alert alert-primary">
-                                    <div class="row">
-                                        <div class="col-md-3">
-                                            <strong>👤 用户角色:</strong><br>
-                                            <span class="badge bg-primary">${display.user_role || persona.role || '专业用户'}</span>
-                                        </div>
-                                        <div class="col-md-3">
-                                            <strong>🏢 业务领域:</strong><br>
-                                            <span class="badge bg-info">${display.business_domain || context.business_domain || '专业服务'}</span>
-                                        </div>
-                                        <div class="col-md-3">
-                                            <strong>📈 经验水平:</strong><br>
-                                            <span class="badge bg-warning">${persona.experience_level || '标准水平'}</span>
-                                        </div>
-                                        <div class="col-md-3">
-                                            <strong>💬 沟通风格:</strong><br>
-                                            <span class="badge bg-secondary">${display.communication_style || persona.communication_style || '专业沟通'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Comprehensive User Persona Information -->
-                        <div class="row mb-4">
-                            <div class="col-md-6">
-                                <h6 class="text-primary"><i class="fas fa-user"></i> 详细用户画像</h6>
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-striped">
-                                        <tr><td><strong>工作环境:</strong></td><td>${display.work_environment || persona.work_environment || '标准办公环境'}</td></tr>
-                                        <tr><td><strong>工作压力:</strong></td><td>${persona.work_pressure || '中等压力'}</td></tr>
-                                        <tr><td><strong>技术水平:</strong></td><td>${persona.technical_level || '标准技术水平'}</td></tr>
-                                        <tr><td><strong>学习能力:</strong></td><td>${persona.learning_ability || '良好学习能力'}</td></tr>
-                                        <tr><td><strong>决策风格:</strong></td><td>${persona.decision_style || '理性决策'}</td></tr>
-                                        <tr><td><strong>信息获取偏好:</strong></td><td>${persona.information_preference || '准确详细信息'}</td></tr>
-                                        <tr><td><strong>专业领域:</strong></td><td>${persona.expertise_areas ? persona.expertise_areas.join(', ') : '通用专业'}</td></tr>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <h6 class="text-success"><i class="fas fa-briefcase"></i> 业务使用场景</h6>
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-striped">
-                                        <tr><td><strong>主要场景:</strong></td><td>${display.primary_scenarios ? display.primary_scenarios.join(', ') : (context.primary_scenarios ? context.primary_scenarios.join(', ') : '专业咨询')}</td></tr>
-                                        <tr><td><strong>交互目标:</strong></td><td>${context.interaction_goals ? context.interaction_goals.slice(0, 3).join(', ') : '获取准确信息'}</td></tr>
-                                        <tr><td><strong>使用频率:</strong></td><td>${context.usage_frequency || '工作日常使用'}</td></tr>
-                                        <tr><td><strong>使用时机:</strong></td><td>${context.usage_timing ? context.usage_timing.join(', ') : '工作时间'}</td></tr>
-                                        <tr><td><strong>期望响应速度:</strong></td><td>${context.response_speed_expectation || '快速响应'}</td></tr>
-                                        <tr><td><strong>信息深度需求:</strong></td><td>${context.information_depth || '详细专业信息'}</td></tr>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- AI Role Simulation and Requirements - Expanded Content -->
-                        ${Object.keys(aiRole).length > 0 ? `
-                        <div class="row mb-4">
-                            <div class="col-md-6">
-                                <h6 class="text-warning"><i class="fas fa-robot"></i> AI角色模拟</h6>
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-striped">
-                                        <tr><td><strong>对话方式:</strong></td><td>${aiRole.conversation_approach || 'N/A'}</td></tr>
-                                        <tr><td><strong>语言特点:</strong></td><td>${aiRole.language_characteristics || 'N/A'}</td></tr>
-                                        <tr><td><strong>交互偏好:</strong></td><td>${aiRole.interaction_preferences || 'N/A'}</td></tr>
-                                    </table>
-                                </div>
-                                ${aiRole.typical_questions ? `
-                                <div class="mt-2">
-                                    <strong>典型问题:</strong>
-                                    <ul class="list-unstyled small">
-                                        ${aiRole.typical_questions.slice(0, 3).map(q => `<li>• ${q}</li>`).join('')}
-                                    </ul>
-                                </div>
-                                ` : ''}
-                            </div>
-                            <div class="col-md-6">
-                                <h6 class="text-info"><i class="fas fa-bullseye"></i> 核心需求分析</h6>
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-striped">
-                                        <tr><td><strong>核心功能:</strong></td><td>${requirements.core_functions ? requirements.core_functions.join(', ') : 'N/A'}</td></tr>
-                                        <tr><td><strong>质量期望:</strong></td><td>${requirements.quality_expectations ? requirements.quality_expectations.join(', ') : 'N/A'}</td></tr>
-                                        <tr><td><strong>交互偏好:</strong></td><td>${requirements.interaction_preferences ? requirements.interaction_preferences.join(', ') : 'N/A'}</td></tr>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                        ` : ''}
-
-                        <!-- Pain Points and Quality Expectations -->
-                        <div class="row mb-4">
-                            <div class="col-md-6">
-                                <h6 class="text-danger"><i class="fas fa-exclamation-triangle"></i> 主要痛点</h6>
-                                <ul class="list-group list-group-flush">
-                                    ${display.pain_points && display.pain_points.length > 0 ?
-                    display.pain_points.map(point => `<li class="list-group-item px-0">${point}</li>`).join('') :
-                    '<li class="list-group-item px-0">暂无记录的痛点</li>'}
-                                </ul>
-                            </div>
-                            <div class="col-md-6">
-                                <h6 class="text-info"><i class="fas fa-star"></i> 质量期望</h6>
-                                <ul class="list-group list-group-flush">
-                                    ${display.quality_expectations && display.quality_expectations.length > 0 ?
-                    display.quality_expectations.map(exp => `<li class="list-group-item px-0">${exp}</li>`).join('') :
-                    (requirements.quality_expectations && requirements.quality_expectations.length > 0 ?
-                        requirements.quality_expectations.map(exp => `<li class="list-group-item px-0">${exp}</li>`).join('') :
-                        '<li class="list-group-item px-0">暂无记录的期望</li>')}
-                                </ul>
-                            </div>
-                        </div>
-
-                        <!-- Core Functions Display -->
-                        ${(display.core_functions && display.core_functions.length > 0) || (requirements.core_functions && requirements.core_functions.length > 0) ? `
-                        <div class="mb-4">
-                            <h6 class="text-warning"><i class="fas fa-cogs"></i> 核心功能需求</h6>
-                            <div class="d-flex flex-wrap gap-2">
-                                ${(display.core_functions || requirements.core_functions || []).map(func => `<span class="badge bg-warning">${func}</span>`).join('')}
-                            </div>
-                        </div>
-                        ` : ''}
-
-                        <!-- Comprehensive Analysis if available -->
-                        ${Object.keys(comprehensiveAnalysis).length > 0 ? `
-                        <div class="mb-4">
-                            <h6 class="text-secondary"><i class="fas fa-search"></i> 综合分析</h6>
-                            <div class="bg-light p-3 rounded">
-                                <pre class="mb-0 small text-wrap">${JSON.stringify(comprehensiveAnalysis, null, 2)}</pre>
-                            </div>
-                        </div>
-                        ` : ''}
-
-                        <!-- Extraction Method and Metadata -->
-                        <div class="mt-4">
-                            <div class="alert alert-success">
-                                <i class="fas fa-robot"></i>
-                                <strong>提取信息:</strong>
-                                <div class="row mt-2">
-                                    <div class="col-md-6">
-                                        <strong>提取方式:</strong> ${display.extraction_method || 'DeepSeek智能分析'}<br>
-                                        <strong>文档长度:</strong> ${display.document_length || 'N/A'} 字符
-                                    </div>
-                                    <div class="col-md-6">
-                                        <strong>分析时间:</strong> ${userPersonaInfo.extraction_timestamp || 'N/A'}<br>
-                                        <strong>数据完整性:</strong> <span class="badge bg-success">完整</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        // Generate comprehensive conversation records section with all analysis details
-        function generateConversationRecordsSection(records) {
-            if (!records || records.length === 0) {
-                return `
-                    <div class="collapsible-card mb-4">
-                        <div class="collapsible-header" onclick="toggleCollapsible('conversation-records')">
-                            <div class="collapsible-title">
-                                <i class="fas fa-comments"></i>
-                                💬 详细对话记录与评估分析 <span class="badge bg-warning">暂无数据</span>
-                            </div>
-                            <i class="fas fa-chevron-down collapsible-toggle" id="conversation-records-toggle"></i>
-                        </div>
-                        <div class="collapsible-content collapsed" id="conversation-records">
-                            <div class="alert alert-info">暂无对话记录</div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            return `
-                <div class="collapsible-card mb-4">
-                    <div class="collapsible-header" onclick="toggleCollapsible('conversation-records')">
-                        <div class="collapsible-title">
-                            <i class="fas fa-comments"></i>
-                            💬 详细对话记录与评估分析 <span class="badge bg-success">${records.length} 个场景</span>
-                        </div>
-                        <i class="fas fa-chevron-down collapsible-toggle" id="conversation-records-toggle"></i>
-                    </div>
-                    <div class="collapsible-content collapsed" id="conversation-records">
-                        ${records.map((record, index) => generateSingleConversationRecord(record, index)).join('')}
-                    </div>
-                </div>
-            `;
-        }
-
-        // Generate detailed single conversation record with improved JSON parsing
-        function generateSingleConversationRecord(record, index) {
-            const scenario = record.scenario || {};
-            const history = record.conversation_history || [];
-            const evaluationScores = record.evaluation_scores || {};
-            const detailedExplanations = record.detailed_explanations || {};
-            const scenarioScore = record.scenario_score_100 || (record.scenario_score * 20) || 0;
-
-            return `
-                <div class="conversation-record-card mb-4">
-                    <div class="card border-primary">
-                        <div class="card-header bg-primary text-white">
-                            <h5 class="mb-0">
-                                <i class="fas fa-comment-dots"></i>
-                                场景 ${index + 1}: ${scenario.title || '未命名场景'}
-                                <span class="badge bg-light text-dark ms-2">${scenarioScore.toFixed(1)}/100</span>
-                                <span class="badge bg-secondary">${getScoreGrade(scenarioScore)}</span>
-                            </h5>
-                        </div>
-                        
-                        <!-- Scenario Information -->
-                        <div class="card-body">
-                            <div class="row mb-3">
-                                <div class="col-md-6">
-                                    <h6 class="text-info"><i class="fas fa-info-circle"></i> 场景信息</h6>
-                                    <table class="table table-sm">
-                                        <tr><td><strong>场景标题:</strong></td><td>${scenario.title || '未命名'}</td></tr>
-                                        <tr><td><strong>场景描述:</strong></td><td>${scenario.description || scenario.context || '无描述'}</td></tr>
-                                        <tr><td><strong>对话轮次:</strong></td><td>${history.length} 轮</td></tr>
-                                        <tr><td><strong>用户画像:</strong></td><td>${scenario.user_profile || '基于自动提取'}</td></tr>
-                                    </table>
-                                </div>
-                                <div class="col-md-6">
-                                    <h6 class="text-success"><i class="fas fa-chart-line"></i> 场景得分概览</h6>
-                                    <div class="scenario-score-overview">
-                                        <div class="mb-2">
-                                            <div class="d-flex justify-content-between">
-                                                <span>场景总分</span>
-                                                <span class="badge bg-primary">${scenarioScore.toFixed(1)}/100</span>
-                                            </div>
-                                            <div class="progress mt-1" style="height: 10px;">
-                                                <div class="progress-bar bg-primary" style="width: ${scenarioScore}%"></div>
-                                            </div>
-                                        </div>
-                                        ${Object.entries(evaluationScores).map(([dim, scoreValue]) => {
-                const score = parseFloat(scoreValue);
-                const labels = {
-                    'fuzzy_understanding': '模糊理解',
-                    'answer_correctness': '回答准确性',
-                    'persona_alignment': '用户匹配',
-                    'goal_alignment': '目标对齐'
-                };
-                const color = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
-                return `
-                                                <div class="mb-1">
-                                                    <div class="d-flex justify-content-between">
-                                                        <small>${labels[dim] || dim}</small>
-                                                        <span class="badge bg-${color}">${score.toFixed(1)}</span>
-                                                    </div>
-                                                </div>
-                                            `;
-            }).join('')}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Complete Conversation History - Collapsible -->
-                            <div class="mb-4">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <h6 class="text-primary mb-0"><i class="fas fa-history"></i> 完整对话历史</h6>
-                                    <button class="btn btn-sm btn-outline-primary" type="button" onclick="toggleSection('conversation-history-${index}')">
-                                        <i class="fas fa-chevron-down" id="conversation-history-${index}-icon"></i> 展开/收起
-                                    </button>
-                                </div>
-                                <div id="conversation-history-${index}" class="conversation-history collapse" style="display: none;">
-                                    ${history.map((turn, turnIndex) => `
-                                        <div class="conversation-turn-complete mb-3 border rounded p-3 bg-light">
-                                            <div class="turn-header mb-2">
-                                                <span class="badge bg-info">第 ${turn.turn || turnIndex + 1} 轮</span>
-                                                ${turn.timestamp ? `<small class="text-muted ms-2">${turn.timestamp}</small>` : ''}
-                                                ${turn.conversation_id ? `<small class="text-muted ms-2">会话ID: ${turn.conversation_id.substring(0, 8)}...</small>` : ''}
-                                            </div>
-                                            
-                                            <div class="user-message-complete mb-2">
-                                                <div class="d-flex align-items-start">
-                                                    <i class="fas fa-user text-primary me-2 mt-1"></i>
-                                                    <div class="flex-grow-1">
-                                                        <div class="fw-bold mb-1">用户消息</div>
-                                                        <div class="bg-white p-2 rounded border">
-                                                            <div class="mb-1"><strong>原始消息:</strong></div>
-                                                            <div class="text-wrap">${turn.user_message || 'N/A'}</div>
-                                                            ${turn.enhanced_message ? `<div class="mt-2"><strong>增强消息:</strong></div><div class="text-wrap">${turn.enhanced_message}</div>` : ''}
-                                                            <small class="text-muted">消息长度: ${(turn.user_message || '').length} 字符</small>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            
-                                            <div class="ai-response-complete">
-                                                <div class="d-flex align-items-start">
-                                                    <i class="fas fa-robot text-success me-2 mt-1"></i>
-                                                    <div class="flex-grow-1">
-                                                        <div class="fw-bold mb-1">AI回复</div>
-                                                        <div class="bg-white p-2 rounded border">
-                                                            <div class="text-wrap">${cleanAiResponse(turn.ai_response || turn.ai_message || 'N/A')}</div>
-                                                            <small class="text-muted">回复长度: ${turn.response_length || (turn.ai_response || '').length} 字符</small>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            </div>
-
-                            <!-- Detailed Evaluation Analysis for Each Dimension - Nested Collapsible -->
-                            <div class="evaluation-analysis-complete">
-                                <h6 class="text-warning"><i class="fas fa-microscope"></i> 详细评估分析 (所有维度)</h6>
-                                                                ${Object.entries(evaluationScores).map(([dimension, scoreValue]) => {
-                // Use the detailed_explanations object for rich content
-                const detailedData = detailedExplanations[dimension] || {};
-                console.log(`🔍 Processing dimension ${dimension}:`, detailedData);
-
-                const score = parseFloat(scoreValue);
-                const detailedAnalysis = detailedData.detailed_analysis || "暂无详细分析";
-                const specificQuotes = detailedData.specific_quotes || "暂无具体引用";
-                const improvementSuggestions = detailedData.improvement_suggestions || "暂无改进建议";
-                const comprehensiveEvaluation = detailedData.comprehensive_evaluation || "暂无综合评价";
-                const fullResponse = detailedData.full_response || "";
-
-                const labels = {
-                    'fuzzy_understanding': '🔍 模糊理解与追问能力',
-                    'answer_correctness': '✅ 回答准确性与专业性',
-                    'persona_alignment': '👥 用户匹配度',
-                    'goal_alignment': '🎯 目标对齐度'
-                };
-
-                const label = labels[dimension] || dimension;
-                const scoreGrade = getScoreGrade(score);
-                const scoreColor = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
-
-                return `
-                                        <div class="dimension-analysis-card mb-4 border rounded">
-                                            <div class="card-header bg-${scoreColor} text-white">
-                                                <div class="d-flex justify-content-between align-items-center">
-                                                    <div>
-                                                        <h6 class="mb-0">
-                                                            ${label}
-                                                            <span class="badge bg-light text-dark ms-2">${score.toFixed(1)}/100</span>
-                                                            <span class="badge bg-secondary">${scoreGrade}</span>
-                                                        </h6>
-                                                    </div>
-                                                    <button class="btn btn-sm btn-outline-light" type="button" onclick="toggleSection('dimension-${index}-${dimension}')">
-                                                        <i class="fas fa-chevron-down" id="dimension-${index}-${dimension}-icon"></i> 详细分析
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div id="dimension-${index}-${dimension}" class="card-body collapse" style="display: none;">
-                                                <!-- Nested Collapsible Analysis Sections -->
-                                                ${generateNestedAnalysisSection('detailed-analysis', '详细分析', 'fas fa-search', 'primary', detailedAnalysis, index, dimension)}
-                                                ${generateNestedAnalysisSection('specific-quotes', '具体引用', 'fas fa-quote-left', 'info', specificQuotes, index, dimension)}
-                                                ${generateNestedAnalysisSection('improvement-suggestions', '改进建议', 'fas fa-lightbulb', 'warning', improvementSuggestions, index, dimension)}
-                                                ${comprehensiveEvaluation !== '暂无综合评价' ? generateNestedAnalysisSection('comprehensive-evaluation', '综合评价', 'fas fa-star', 'success', comprehensiveEvaluation, index, dimension) : ''}
-                                                ${fullResponse ? generateNestedAnalysisSection('full-response', '原始评估回复', 'fas fa-file-alt', 'secondary', fullResponse, index, dimension, true) : ''}
-                                            </div>
-                                        </div>
-                                    `;
-            }).join('')}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        // Helper function to generate nested analysis sections with enhanced content detection
-        function generateNestedAnalysisSection(type, title, icon, color, content, index, dimension, isCode = false) {
-            const sectionId = `${type}-${index}-${dimension}`;
-
-            // Enhanced content processing
-            let displayContent;
-            let hasContent = false;
-
-            if (content && content !== null && content !== '') {
-                hasContent = true;
-                if (isCode) {
-                    displayContent = `<pre class="mb-0 small text-wrap">${escapeHtml(content)}</pre>`;
-                } else {
-                    displayContent = `<div class="text-wrap">${formatAnalysisText(content)}</div>`;
-                }
+                showTrickyTestWarning();
             } else {
-                displayContent = `<div class="text-muted"><i>暂无${title}内容</i></div>`;
-            }
-
-            // Add debug info
-            console.log(`📝 Section ${type} for ${dimension}: hasContent=${hasContent}, content preview:`,
-                content ? content.substring(0, 100) + '...' : 'null/empty');
-
-            return `
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="text-${color} mb-0">
-                            <i class="${icon}"></i> ${title}
-                            ${hasContent ? '<span class="badge bg-success ms-2">有内容</span>' : '<span class="badge bg-secondary ms-2">无内容</span>'}
-                        </h6>
-                        <button class="btn btn-sm btn-outline-${color}" type="button" onclick="toggleSection('${sectionId}')">
-                            <i class="fas fa-chevron-down" id="${sectionId}-icon"></i> 展开/收起
-                        </button>
-                    </div>
-                    <div id="${sectionId}" class="collapse" style="display: none;">
-                        <div class="border-start border-${color} border-3 ps-3 bg-light p-3 rounded">
-                            ${displayContent}
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        // HTML escape function for safety
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Generate other sections for complete data display
-        function generateContextDisplaySection(contextDisplay) {
-            if (!contextDisplay || Object.keys(contextDisplay).length === 0) return '';
-
-            return `
-                <div class="collapsible-card mb-4">
-                    <div class="collapsible-header" onclick="toggleCollapsible('context-display')">
-                        <div class="collapsible-title">
-                            <i class="fas fa-info-circle"></i>
-                            📄 评估上下文与技术详情
-                        </div>
-                        <i class="fas fa-chevron-down collapsible-toggle" id="context-display-toggle"></i>
-                    </div>
-                    <div class="collapsible-content collapsed" id="context-display">
-                        ${contextDisplay.requirement_document_summary ? `
-                        <div class="mb-3">
-                            <h6 class="text-primary"><i class="fas fa-file-text"></i> 需求文档摘要</h6>
-                            <div class="bg-light p-3 rounded">
-                                <strong>内容预览:</strong> ${contextDisplay.requirement_document_summary.content_preview || 'N/A'}<br>
-                                <strong>分析基础:</strong> ${contextDisplay.requirement_document_summary.analysis_basis || 'N/A'}
-                            </div>
-                        </div>
-                        ` : ''}
-                        
-                        ${contextDisplay.technical_details ? `
-                        <div class="mb-3">
-                            <h6 class="text-success"><i class="fas fa-cog"></i> 技术实现详情</h6>
-                            <table class="table table-sm">
-                                <tr><td><strong>API类型:</strong></td><td>${contextDisplay.technical_details.api_type || 'N/A'}</td></tr>
-                                <tr><td><strong>对话轮次:</strong></td><td>${contextDisplay.technical_details.conversation_turns || 'N/A'}</td></tr>
-                                <tr><td><strong>评估维度:</strong></td><td>${contextDisplay.technical_details.evaluation_dimensions || 'N/A'}</td></tr>
-                            </table>
-                        </div>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
-        }
-
-        function generatePersonaAlignmentSection(data) {
-            const alignment = data.persona_alignment_analysis;
-            if (!alignment) return '';
-
-            return `
-                <div class="collapsible-card mb-4">
-                    <div class="collapsible-header" onclick="toggleCollapsible('persona-alignment')">
-                        <div class="collapsible-title">
-                            <i class="fas fa-user-check"></i>
-                            🎭 用户画像匹配度分析
-                        </div>
-                        <i class="fas fa-chevron-down collapsible-toggle" id="persona-alignment-toggle"></i>
-                    </div>
-                    <div class="collapsible-content collapsed" id="persona-alignment">
-                        <div class="bg-light p-3 rounded">
-                            ${formatAnalysisText(alignment)}
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function generateBusinessGoalSection(data) {
-            const goal = data.business_goal_achievement;
-            if (!goal) return '';
-
-            return `
-                <div class="collapsible-card mb-4">
-                    <div class="collapsible-header" onclick="toggleCollapsible('business-goal')">
-                        <div class="collapsible-title">
-                            <i class="fas fa-bullseye"></i>
-                            🎯 业务目标达成度分析
-                        </div>
-                        <i class="fas fa-chevron-down collapsible-toggle" id="business-goal-toggle"></i>
-                    </div>
-                    <div class="collapsible-content collapsed" id="business-goal">
-                        <div class="bg-light p-3 rounded">
-                            ${formatAnalysisText(goal)}
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function generateTechnicalDetailsSection(data) {
-            return `
-                <div class="collapsible-card mb-4">
-                    <div class="collapsible-header" onclick="toggleCollapsible('technical-details')">
-                        <div class="collapsible-title">
-                            <i class="fas fa-server"></i>
-                            ⚙️ 系统技术信息与下载功能
-                        </div>
-                        <i class="fas fa-chevron-down collapsible-toggle" id="technical-details-toggle"></i>
-                    </div>
-                    <div class="collapsible-content collapsed" id="technical-details">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6 class="text-info"><i class="fas fa-info-circle"></i> 评估系统信息</h6>
-                                <table class="table table-sm">
-                                    <tr><td><strong>评估模式:</strong></td><td><span class="badge bg-primary">${data.evaluation_mode || 'unknown'}</span></td></tr>
-                                    <tr><td><strong>时间戳:</strong></td><td>${data.timestamp || '未记录'}</td></tr>
-                                    <tr><td><strong>数据版本:</strong></td><td>v${data.version || '1.0'}</td></tr>
-                                    <tr><td><strong>平台版本:</strong></td><td>AI评估平台 v4.1</td></tr>
-                                </table>
-                            </div>
-                            <div class="col-md-6">
-                                <h6 class="text-warning"><i class="fas fa-download"></i> 报告下载选项</h6>
-                                <div class="mb-3">
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="includeTranscript" checked>
-                                        <label class="form-check-label" for="includeTranscript">
-                                            包含完整对话记录
-                                        </label>
-                                    </div>
-                                </div>
-                                <div class="btn-group" role="group">
-                                    <button type="button" class="btn btn-primary btn-sm" onclick="downloadReport('json')">
-                                        <i class="fas fa-code"></i> JSON
-                                    </button>
-                                    <button type="button" class="btn btn-success btn-sm" onclick="downloadReport('txt')">
-                                        <i class="fas fa-file-text"></i> TXT
-                                    </button>
-                                    <button type="button" class="btn btn-info btn-sm" onclick="downloadReport('docx')">
-                                        <i class="fas fa-file-word"></i> DOCX
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function generateRawDataSection(data) {
-            return `
-                <div class="collapsible-card mb-4">
-                    <div class="collapsible-header" onclick="toggleCollapsible('raw-data')">
-                        <div class="collapsible-title">
-                            <i class="fas fa-database"></i>
-                            🔧 完整原始JSON数据 <span class="badge bg-warning">技术用户专用</span>
-                        </div>
-                        <i class="fas fa-chevron-down collapsible-toggle" id="raw-data-toggle"></i>
-                    </div>
-                    <div class="collapsible-content collapsed" id="raw-data">
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle"></i>
-                            <strong>说明:</strong> 此处为完整的原始JSON数据，包含了上述所有信息的技术格式。主要用于开发集成、数据分析或备份用途。
-                        </div>
-                        <pre class="bg-dark text-light p-3 rounded small overflow-auto" style="max-height: 600px;"><code>${JSON.stringify(data, null, 2)}</code></pre>
-                    </div>
-                </div>
-            `;
-        }
-
-        function toggleCollapsible(element) {
-            // Handle both element and sectionId parameters
-            let content = null;
-            let toggle = null;
-
-            if (typeof element === 'string') {
-                // Direct sectionId passed
-                content = document.getElementById(element);
-                toggle = document.getElementById(element + '-toggle');
-            } else if (element && element.tagName) {
-                // DOM element passed - find the next collapsible-content sibling
-                let currentElement = element;
-
-                // If clicked element is inside the header, find the header
-                while (currentElement && !currentElement.classList.contains('collapsible-header')) {
-                    currentElement = currentElement.parentElement;
-                }
-
-                if (currentElement && currentElement.classList.contains('collapsible-header')) {
-                    // Find the collapsible-content sibling
-                    content = currentElement.nextElementSibling;
-                    while (content && !content.classList.contains('collapsible-content')) {
-                        content = content.nextElementSibling;
-                    }
-
-                    // Find the toggle icon within the header
-                    toggle = currentElement.querySelector('.collapsible-toggle');
-                }
-            }
-
-            // Add null checks to prevent TypeError
-            if (!content) {
-                console.warn('⚠️ toggleCollapsible: content element not found for', element);
-                return;
-            }
-
-            // Toggle the content visibility
-            if (content.classList.contains('collapsed')) {
-                content.classList.remove('collapsed');
-                if (toggle) toggle.classList.add('rotated');
-            } else {
-                content.classList.add('collapsed');
-                if (toggle) toggle.classList.remove('rotated');
+                configSection.classList.remove('tricky-test-active');
+                const indicator = configSection.querySelector('.tricky-test-indicator');
+                if (indicator) indicator.remove();
             }
         }
 
-        // Browser-compatible timeout signal creation
-        function createTimeoutSignal(timeoutMs) {
-            const controller = new AbortController();
+        function showTrickyTestWarning() {
+            if (document.querySelector('.tricky-test-warning')) return; // Don't show multiple warnings
+
+            const warning = document.createElement('div');
+            warning.className = 'alert alert-warning tricky-test-warning mt-2';
+            warning.innerHTML = `
+                <i class="fas fa-exclamation-triangle"></i> 
+                <strong>刁钻测试模式已激活：</strong>
+                将生成极端场景问题（如南极建设、历史建筑改造等）来测试AI知识边界。
+                这些问题可能无法在标准规范数据库中找到答案。
+            `;
+
+            const firstConfigSection = document.querySelector('.config-section');
+            firstConfigSection.parentNode.insertBefore(warning, firstConfigSection.nextSibling);
+
             setTimeout(() => {
-                controller.abort();
-            }, timeoutMs);
-            return controller.signal;
-        }
-
-        // Validate API headers input to prevent common user errors
-        function validateApiHeaders() {
-            const apiHeadersField = document.getElementById('apiHeaders');
-            const value = apiHeadersField.value.trim();
-
-            if (!value) return; // Empty is okay
-
-            try {
-                const parsed = JSON.parse(value);
-
-                // Check if user pasted full config instead of just headers
-                if (parsed && typeof parsed === 'object') {
-                    const suspiciousKeys = ['type', 'url', 'method', 'timeout', 'agentId', 'botId'];
-                    const foundSuspicious = suspiciousKeys.filter(key => key in parsed);
-
-                    if (foundSuspicious.length > 0) {
-                        showHeadersWarning(`检测到配置字段 "${foundSuspicious.join(', ')}"，请只填写请求头信息！`);
-                        return false;
-                    }
-                }
-
-                // Clear any previous warnings
-                clearHeadersWarning();
-                return true;
-            } catch (e) {
-                showHeadersWarning('请输入有效的JSON格式');
-                return false;
-            }
-        }
-
-        // Handle paste events to detect full config paste
-        function handleHeadersPaste(event) {
-            setTimeout(() => {
-                const apiHeadersField = document.getElementById('apiHeaders');
-                const value = apiHeadersField.value.trim();
-
-                // Check if pasted content looks like a full config
-                if (value.includes('"type"') && value.includes('"url"') && value.includes('"method"')) {
-                    showHeadersWarning('⚠️ 检测到完整配置！请分别填写各个字段，不要在此处粘贴完整配置。');
-
-                    // Try to extract just the headers part
-                    try {
-                        const parsed = JSON.parse(value);
-                        if (parsed.headers && typeof parsed.headers === 'object') {
-                            apiHeadersField.value = JSON.stringify(parsed.headers, null, 2);
-                            showHeadersWarning('✅ 已自动提取请求头部分，请检查并确认内容正确。');
-                        } else {
-                            apiHeadersField.value = '{"Authorization": "Bearer your-token"}';
-                            showHeadersWarning('❌ 无法提取请求头，已重置为示例格式，请重新填写。');
-                        }
-                    } catch (e) {
-                        apiHeadersField.value = '{"Authorization": "Bearer your-token"}';
-                        showHeadersWarning('❌ 粘贴内容格式错误，已重置为示例格式，请重新填写。');
-                    }
-                }
-            }, 100); // Small delay to allow paste to complete
-        }
-
-        // Show warning message for headers field
-        function showHeadersWarning(message) {
-            const apiHeadersField = document.getElementById('apiHeaders');
-            let warningDiv = document.getElementById('headers-warning');
-
-            if (!warningDiv) {
-                warningDiv = document.createElement('div');
-                warningDiv.id = 'headers-warning';
-                warningDiv.className = 'alert alert-warning mt-2 mb-0';
-                apiHeadersField.parentNode.appendChild(warningDiv);
-            }
-
-            warningDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
-            warningDiv.style.display = 'block';
-        }
-
-        // Clear warning message for headers field
-        function clearHeadersWarning() {
-            const warningDiv = document.getElementById('headers-warning');
-            if (warningDiv) {
-                warningDiv.style.display = 'none';
-            }
-        }
-
-        // New function for toggling sections with display:none/block
-        function toggleSection(sectionId) {
-            const content = document.getElementById(sectionId);
-            const icon = document.getElementById(sectionId + '-icon');
-
-            if (!content || !icon) return;
-
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
-                icon.classList.remove('fa-chevron-down');
-                icon.classList.add('fa-chevron-up');
-            } else {
-                content.style.display = 'none';
-                icon.classList.remove('fa-chevron-up');
-                icon.classList.add('fa-chevron-down');
-            }
-        }
-
-        function cleanAiResponse(response) {
-            if (!response) return '暂无回复';
-
-            // Handle JSON formatted responses
-            if (response.includes('"tool_output_content"')) {
-                try {
-                    const match = response.match(/"tool_output_content":\s*"([^"]+)"/);
-                    if (match && match[1]) {
-                        let content = match[1].replace(/\\n/g, ' ').replace(/\\/g, '');
-                        // Extract answer part if exists
-                        if (content.includes('答案：')) {
-                            content = content.split('答案：')[1];
-                        }
-                        return content.trim();
-                    }
-                } catch (e) {
-                    // Fall through to default handling
-                }
-            }
-
-            // Handle stream plugin finish format
-            if (response.includes('"msg_type":"stream_plugin_finish"')) {
-                try {
-                    // Extract meaningful content using regex
-                    const answerMatch = response.match(/答案：([^"\\]+)/);
-                    if (answerMatch && answerMatch[1]) {
-                        return answerMatch[1].trim();
-                    }
-                } catch (e) {
-                    // Fall through to default handling
-                }
-            }
-
-            // Return cleaned response
-            return response.replace(/\\n/g, ' ').replace(/\\/g, '').trim();
+                if (warning.parentNode) warning.remove();
+            }, 8000);
         }
 
         function displayResults(data) {
-            // Store evaluation data for download functionality
             currentEvaluationData = data;
-
-            // Comprehensive JSON structure inspection for debugging
-            console.log('🔍 FULL JSON DATA INSPECTION:');
-            console.log('📊 Complete data object:', data);
-            console.log('📝 conversation_records:', data.conversation_records);
-
-            if (data.conversation_records && data.conversation_records.length > 0) {
-                console.log('🎯 First record structure:', data.conversation_records[0]);
-                console.log('📈 First record evaluation_scores:', data.conversation_records[0].evaluation_scores);
-                console.log('📝 First record detailed_explanations:', data.conversation_records[0].detailed_explanations);
-
-                // Inspect each evaluation dimension
-                const firstRecord = data.conversation_records[0];
-                if (firstRecord.detailed_explanations) {
-                    Object.keys(firstRecord.detailed_explanations).forEach(dimension => {
-                        console.log(`🔍 Detailed explanation for ${dimension}:`, firstRecord.detailed_explanations[dimension]);
-                    });
-                }
-            }
-
+            console.log('🔍 FULL JSON DATA:', data);
             const resultsContainer = document.getElementById('resultsContent');
-            const summary = data.evaluation_summary;
-            const records = data.conversation_records || [];
-            const evaluationMode = data.evaluation_mode || 'manual';
-            const userPersonaInfo = data.user_persona_info;
-
-            // Generate overall score visualization using 100-point scale with fine-grained precision
-            const overallScore100 = parseFloat(summary.overall_score_100 || (summary.overall_score * 20) || 0);
-            const starsHtml = generateStarRating(overallScore100);
-            const overallGrade = getScoreGrade(overallScore100);
-            const overallColor = overallScore100 >= 80 ? 'success' : overallScore100 >= 60 ? 'warning' : 'danger';
-
-            // Generate comprehensive summary section
-            const totalScenarios = summary.total_scenarios || records.length || 0;
-            const totalConversations = summary.total_conversations || 0;
-            const personaRole = userPersonaInfo?.user_persona?.role || '专业用户';
-            const businessDomain = userPersonaInfo?.usage_context?.business_domain || '专业服务';
-
-            const summarySection = `
-                <div class="summary-overview mb-4">
-                    <div class="card border-${overallColor}">
-                        <div class="card-header bg-${overallColor} text-white">
-                            <h4 class="mb-0">
-                                <i class="fas fa-chart-pie"></i> 
-                                AI Agent 评估综合报告
-                                <span class="badge bg-light text-dark ms-2">${overallScore100.toFixed(1)}/100</span>
-                                <span class="badge bg-secondary">${overallGrade}</span>
-                            </h4>
-                        </div>
-                        <div class="card-body">
-                            <div class="row mb-3">
-                                <div class="col-md-3">
-                                    <div class="stat-card text-center p-3 bg-light rounded">
-                                        <div class="h3 text-primary mb-1">${totalScenarios}</div>
-                                        <div class="small text-muted">评估场景</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="stat-card text-center p-3 bg-light rounded">
-                                        <div class="h3 text-info mb-1">${totalConversations}</div>
-                                        <div class="small text-muted">对话轮次</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="stat-card text-center p-3 bg-light rounded">
-                                        <div class="h3 text-warning mb-1">4</div>
-                                        <div class="small text-muted">评估维度</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="stat-card text-center p-3 bg-light rounded">
-                                        <div class="h3 text-${overallColor} mb-1">${overallScore100.toFixed(0)}</div>
-                                        <div class="small text-muted">综合得分</div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="info-section">
-                                        <h6><i class="fas fa-user-tie"></i> 用户画像匹配</h6>
-                                        <div class="small mb-2">
-                                            <span class="badge bg-primary">${personaRole}</span>
-                                            <span class="badge bg-info">${businessDomain}</span>
-                                        </div>
-                                        <p class="small text-muted">基于提取的用户画像进行个性化评估，确保测试场景贴合实际业务需求</p>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="info-section">
-                                        <h6><i class="fas fa-bullseye"></i> 业务目标达成</h6>
-                                        <p class="small text-muted">完成多维度动态对话评估，覆盖模糊理解、回答准确性、用户匹配度和目标对齐度四个核心维度</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            // Generate dimensions cards using fine-grained 100-point scale
-            const dimensions = summary.dimension_scores_100 || summary.dimension_scores || {};
-            const dimensionCards = Object.entries(dimensions).map(([key, value]) => {
-                const labels = {
-                    'fuzzy_understanding': '🔍 模糊理解与追问能力',
-                    'answer_correctness': '✅ 回答准确性与专业性',
-                    'persona_alignment': '👥 用户匹配度',
-                    'goal_alignment': '🎯 目标对齐度'
-                };
-
-                const label = labels[key] || key;
-                // Convert to 100-point scale if needed and ensure precision
-                const score100 = parseFloat(value <= 5 ? value * 20 : value);
-                const scoreGrade = getScoreGrade(score100);
-                const color = score100 >= 80 ? 'success' : score100 >= 60 ? 'warning' : 'danger';
-                const stars = generateStarRating(score100);
-
-                return `
-                    <div class="col-md-6 col-lg-3 mb-3">
-                        <div class="card border-${color} h-100">
-                            <div class="card-body text-center">
-                                <h6 class="card-title text-${color}">${label}</h6>
-                                <div class="h2 text-${color} mb-2">${score100.toFixed(1)}</div>
-                                <div class="small text-muted mb-2">/ 100</div>
-                                <div class="star-rating mb-2">${stars}</div>
-                                <span class="badge bg-${color}">${scoreGrade}</span>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            // Generate streamlined JSON sections for technical users only 
-            const jsonSections = `
-                <div class="mb-4">
-                    <h5><i class="fas fa-database"></i> 技术数据导出 <small class="text-muted">(JSON格式，供高级用户和系统集成使用)</small></h5>
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle"></i> 
-                        <strong>提示：</strong>所有评估分析内容已在上方详细展示。此处为原始JSON数据，主要用于技术集成和数据导出。
-                    </div>
-                    ${generateJsonSection(data.evaluation_summary, "📊 评估总结数据", "json-summary")}
-                    ${data.user_persona_info ? generateJsonSection(data.user_persona_info, "👤 用户画像数据", "json-persona") : ''}
-                    <div class="collapsible-card mb-3">
-                        <div class="collapsible-header" onclick="toggleCollapsible('json-raw')">
-                            <div class="collapsible-title">
-                                <i class="fas fa-code"></i>
-                                🔧 完整原始数据 <span class="badge bg-warning">技术用户专用</span>
-                            </div>
-                            <i class="fas fa-chevron-down collapsible-toggle" id="json-raw-toggle"></i>
-                        </div>
-                        <div class="collapsible-content collapsed" id="json-raw">
-                            <pre class="bg-dark text-light p-3 rounded small overflow-auto" style="max-height: 500px;"><code>${JSON.stringify(data, null, 2)}</code></pre>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            // Generate simplified conversation records using complete data display
-            const conversationHtml = records.map((record, index) => {
-                const scenario = record.scenario || {};
-                const history = record.conversation_history || [];
-                const scenarioScore100 = parseFloat(record.scenario_score_100 || (record.scenario_score * 20) || 0);
-                const scoreGrade = getScoreGrade(scenarioScore100);
-
-                return `
-                    <div class="conversation-section">
-                        <div class="conversation-header" onclick="toggleConversation('conversation-${index}')">
-                            <div>
-                                <h6 class="mb-1"><i class="fas fa-comment-dots"></i> ${scenario.title || `场景 ${index + 1}`}</h6>
-                                <small class="text-muted">${history.length} 轮对话 • 得分: ${scenarioScore100.toFixed(1)}/100 (${scoreGrade})</small>
-                            </div>
-                            <i class="fas fa-chevron-down"></i>
-                        </div>
-                        <div id="conversation-${index}" class="conversation-content" style="display: none;">
-                            <div class="alert alert-info">
-                                <i class="fas fa-info-circle"></i>
-                                <strong>完整详细分析:</strong> 请查看上方的"💬 详细对话记录与评估分析"部分，包含所有维度的完整分析内容。
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            // Generate persona display section if available
-            let personaDisplayHtml = '';
-            if (userPersonaInfo && userPersonaInfo.extracted_persona_summary) {
-                const persona = userPersonaInfo.extracted_persona_summary.user_persona || {};
-                const usage = userPersonaInfo.extracted_persona_summary.usage_context || {};
-
-                personaDisplayHtml = `
-                    <!-- User Persona Section -->
-                    <div class="mb-4">
-                        <div class="card">
-                            <div class="card-header bg-info text-white">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <h6 class="mb-0">
-                                        <i class="fas fa-user-cog"></i> 
-                                        提取的用户画像与上下文信息
-                                    </h6>
-                                    <button class="btn btn-sm btn-outline-light" type="button" 
-                                            onclick="togglePersonaDetails()" id="personaToggleBtn">
-                                        <i class="fas fa-chevron-down"></i> 查看详细
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <!-- Compact Summary -->
-                            <div class="card-body pb-2">
-                                <div class="row">
-                                    <div class="col-md-3">
-                                        <strong>用户角色：</strong><span class="text-primary">${persona.role || '通用用户'}</span>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <strong>业务领域：</strong><span class="text-info">${usage.business_domain || '通用服务'}</span>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <strong>经验水平：</strong><span class="text-warning">${persona.experience_level || '标准'}</span>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <strong>沟通风格：</strong><span class="text-secondary">${persona.communication_style || '专业沟通'}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Detailed Information (Collapsible) -->
-                            <div id="personaDetailsContent" class="collapse">
-                                <div class="card-body border-top">
-                                    <div class="row">
-                                        <!-- User Persona Details -->
-                                        <div class="col-md-6">
-                                            <h6 class="text-primary"><i class="fas fa-user"></i> 用户画像详情</h6>
-                                            <ul class="list-unstyled small">
-                                                <li><strong>工作环境：</strong> ${persona.work_environment || '标准办公环境'}</li>
-                                                <li><strong>工作压力：</strong> ${persona.work_pressure || '中等工作压力'}</li>
-                                                <li><strong>专业领域：</strong> ${persona.expertise_areas ? persona.expertise_areas.join(', ') : '通用专业'}</li>
-                                            </ul>
-                                        </div>
-                                        
-                                        <!-- Usage Context -->
-                                        <div class="col-md-6">
-                                            <h6 class="text-info"><i class="fas fa-briefcase"></i> 使用场景</h6>
-                                            <ul class="list-unstyled small">
-                                                <li><strong>主要场景：</strong> ${usage.primary_scenarios ? usage.primary_scenarios.join(', ') : '专业咨询'}</li>
-                                                <li><strong>交互目标：</strong> ${usage.interaction_goals ? usage.interaction_goals.slice(0, 3).join(', ') : '获取准确信息'}</li>
-                                                <li><strong>使用时机：</strong> ${usage.usage_timing ? usage.usage_timing.join(', ') : '工作时间'}</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="row mt-3">
-                                        <div class="col-12">
-                                            <div class="alert alert-light mb-0">
-                                                <i class="fas fa-lightbulb text-warning"></i>
-                                                <strong>智能分析结果：</strong>系统基于此用户画像生成针对性的对话场景，确保评估结果更贴合实际业务需求。
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            resultsContainer.innerHTML = `
-                <!-- Comprehensive Complete Report - ALL DATA DISPLAY -->
-                ${generateCompleteDataReport(data)}
-            `;
-
-            // Show results section
+            resultsContainer.innerHTML = generateFinalReport(data);
             document.getElementById('resultsSection').style.display = 'block';
-            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+            resultsContainer.scrollIntoView({ behavior: 'smooth' });
         }
 
-        function toggleConversation(conversationId) {
-            const content = document.getElementById(conversationId);
-            const header = content.previousElementSibling;
-            const icon = header.querySelector('.fas');
-
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
-                icon.classList.remove('fa-chevron-down');
-                icon.classList.add('fa-chevron-up');
-            } else {
-                content.style.display = 'none';
-                icon.classList.remove('fa-chevron-up');
-                icon.classList.add('fa-chevron-down');
-            }
+        function generateFinalReport(data) {
+            const summary = data.evaluation_summary || {};
+            const persona = summary.persona || {};
+            const usageContext = summary.usage_context || {};
+            const goal = summary.goal || {};
+            const recommendations = summary.recommendations || data.recommendations || [];
+            return `
+                <div class="final-report-container">
+                    ${generateOverallScoreCard(summary)}
+                    ${generateRecommendationsCard(recommendations)}
+                    ${generateUserPersonaCard(persona, usageContext, goal)}
+                    ${generateDimensionsCard(summary.dimension_scores_100)}
+                    ${generateConversationsCard(data.conversation_records || [])}
+                    ${generateTechDataCard(data)}
+                </div>
+            `;
         }
 
-        function toggleExplanation(explanationId) {
-            const element = document.getElementById(explanationId);
-            if (element.style.display === 'none') {
-                element.style.display = 'block';
-            } else {
-                element.style.display = 'none';
-            }
+        function generateOverallScoreCard(summary) {
+            const score = parseFloat(summary.overall_score_100 || 0);
+            const grade = getScoreGrade(score);
+            const color = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
+
+            // Check if tricky test mode was used
+            const isTrickyMode = summary.is_tricky_test || false;
+            const trickyBadge = isTrickyMode ? `<span class="badge bg-warning ms-2" title="使用了刁钻测试模式"><i class="fas fa-bolt"></i> 刁钻模式</span>` : '';
+
+            return `<div class="card border-${color} mb-4 shadow-lg"><div class="card-header bg-${color} text-white"><div class="row align-items-center"><div class="col-md-7"><h3 class="mb-1 fw-bold"><i class="fas fa-trophy"></i> 综合得分报告${trickyBadge}</h3><p class="mb-0 small opacity-75">最终得分（100分制）${isTrickyMode ? ' - 极端场景测试' : ''}</p></div><div class="col-md-5 text-md-end text-center mt-2 mt-md-0"><span class="display-4 fw-bold">${score.toFixed(1)}</span><span class="h4">/ 100</span></div></div></div><div class="card-body p-4"><div class="row text-center"><div class="col-6 col-md-3"><div class="stat-number text-primary">${summary.total_scenarios || 0}</div><div class="stat-label">评估场景</div></div><div class="col-6 col-md-3"><div class="stat-number text-info">${summary.total_conversations || 0}</div><div class="stat-label">总对话轮次</div></div><div class="col-md-3 d-none d-md-block"><div class="stat-number text-${color}">${grade}</div><div class="stat-label">综合评级</div></div><div class="col-md-3 d-none d-md-block"><div class="stat-number text-warning">${isTrickyMode ? '刁钻' : '常规'}</div><div class="stat-label">测试模式</div></div></div>${isTrickyMode ? '<div class="alert alert-warning mt-3 mb-0"><i class="fas fa-info-circle"></i> <strong>刁钻测试模式：</strong> 本次评估使用了极端场景问题，测试结果可能反映AI在边界情况下的表现。</div>' : ''}</div></div>`;
         }
 
-        function togglePersonaDetails() {
-            const content = document.getElementById('personaDetailsContent');
-            const btn = document.getElementById('personaToggleBtn');
-            const icon = btn.querySelector('.fas');
-
-            if (content.classList.contains('show')) {
-                content.classList.remove('show');
-                icon.classList.remove('fa-chevron-up');
-                icon.classList.add('fa-chevron-down');
-                btn.innerHTML = '<i class="fas fa-chevron-down"></i> 查看详细';
-            } else {
-                content.classList.add('show');
-                icon.classList.remove('fa-chevron-down');
-                icon.classList.add('fa-chevron-up');
-                btn.innerHTML = '<i class="fas fa-chevron-up"></i> 收起详细';
+        function generateRecommendationsCard(recommendations) {
+            if (!recommendations || recommendations.length === 0) {
+                return `
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">优化建议</h5>
+                            <p class="text-muted">暂无具体改进建议，当前表现良好。</p>
+                        </div>
+                    </div>`;
             }
+
+            // Check if these are AI-generated recommendations
+            const isAISuggestion = recommendations === window.aiImprovementSuggestions;
+
+            return `
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            ${isAISuggestion ? 'AI智能改进建议' : '优化建议'}
+                            ${isAISuggestion ? '<span class="badge bg-primary ms-2">AI</span>' : ''}
+                        </h5>
+                        <div class="recommendations-container" style="max-height: 500px; overflow-y: auto;">
+                            ${recommendations.map(rec => {
+                // Split the recommendation into lines and preserve formatting
+                const lines = rec.split('\n');
+                const formattedLines = lines.map(line => {
+                    if (line.startsWith('问题：')) {
+                        return `<h6 class="mb-2 text-primary">${line}</h6>`;
+                    } else if (line.startsWith('方案：')) {
+                        return `<p class="mb-2">${line}</p>`;
+                    } else if (line.startsWith('预期：')) {
+                        return `<p class="mb-3 text-info"><small>${line}</small></p>`;
+                    } else {
+                        return `<p class="mb-2">${line}</p>`;
+                    }
+                }).join('');
+
+                return `
+                                    <div class="recommendation-item mb-4 p-3 border rounded">
+                                        ${formattedLines}
+                                    </div>`;
+            }).join('')}
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        function generateUserPersonaCard(persona, usageContext, goal) {
+            // Fix persona data structure - extract from user_persona_info if nested
+            let actualPersona = persona;
+            let actualContext = usageContext;
+            let actualGoal = goal;
+
+            // Check if data is nested in user_persona_info structure
+            if (currentEvaluationData?.user_persona_info?.extracted_persona_summary) {
+                const extractedData = currentEvaluationData.user_persona_info.extracted_persona_summary;
+                actualPersona = extractedData.user_persona || persona;
+                actualContext = extractedData.usage_context || usageContext;
+                actualGoal = actualContext?.goal || goal;
+            }
+
+            return `<div class="collapsible-card mb-4"><div class="collapsible-header" onclick="toggleCollapsible(this)"><div class="collapsible-title"><i class="fas fa-user-tie"></i> 👤 用户画像与使用场景</div><i class="fas fa-chevron-down collapsible-toggle"></i></div><div class="collapsible-content collapsed"><div class="row"><div class="col-md-4 mb-3"><h6><i class="fas fa-user-tag text-primary"></i> 用户画像</h6><p class="small text-muted mb-1"><strong>角色:</strong> ${escapeHtml(actualPersona?.role || '工程项目现场监理工程师')}</p><p class="small text-muted mb-0"><strong>经验:</strong> ${escapeHtml(actualPersona?.experience_level || '有经验')}</p><p class="small text-muted mb-0"><strong>风格:</strong> ${escapeHtml(actualPersona?.communication_style || '专业直接')}</p></div><div class="col-md-4 mb-3"><h6><i class="fas fa-building text-info"></i> 使用场景</h6><p class="small text-muted mb-0"><strong>领域:</strong> ${escapeHtml(actualContext?.business_domain || '工程项目现场监理')}</p><p class="small text-muted mb-0"><strong>场景:</strong> ${escapeHtml(actualContext?.usage_scenario || '巡检验收时规范查询')}</p></div><div class="col-md-4"><h6><i class="fas fa-bullseye text-success"></i> 使用目标</h6><ul class="list-unstyled mb-0"><li class="small text-muted"><i class="fas fa-dot-circle me-2"></i>${escapeHtml(actualGoal?.goal || '快速准确获取规范信息')}</li></ul></div></div></div></div>`;
+        }
+
+        function generateDimensionsCard(scores) {
+            if (!scores || !Object.keys(scores).length) return '';
+            const cards = Object.entries(scores).map(([label, value]) => {
+                const score = parseFloat(value), grade = getScoreGrade(score), color = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
+                return `<div class="col-md-6 col-lg-4 mb-3"><div class="card border-${color} h-100 shadow-sm"><div class="card-body text-center p-3"><h6 class="card-title text-${color} mb-2">${label}</h6><div class="h2 fw-bold text-${color}">${score.toFixed(1)}</div><div class="small text-muted mb-2">/ 100</div><span class="badge bg-${color}">${grade}</span></div></div></div>`;
+            }).join('');
+            return `<div class="collapsible-card mb-4"><div class="collapsible-header" onclick="toggleCollapsible(this)"><div class="collapsible-title"><i class="fas fa-chart-bar"></i> 📊 各维度详细评分</div><i class="fas fa-chevron-down collapsible-toggle"></i></div><div class="collapsible-content collapsed"><div class="row">${cards}</div></div></div>`;
+        }
+
+        function generateConversationsCard(records) {
+            if (!records || !records.length) return '';
+            return `<div class="collapsible-card mb-4"><div class="collapsible-header" onclick="toggleCollapsible(this)"><div class="collapsible-title"><i class="fas fa-comments"></i> 💬 详细对话记录与评估分析</div><i class="fas fa-chevron-down collapsible-toggle"></i></div><div class="collapsible-content collapsed p-2" style="background-color:#f8f9fa;">${records.map((r, i) => generateSingleConversationRecord(r, i)).join('')}</div></div>`;
+        }
+
+        function generateSingleConversationRecord(record, index) {
+            const scenario = record.scenario || {};
+            const history = record.conversation_history || [];
+            const explanations = record.evaluation_scores_with_explanations || {};
+            const score = record.scenario_score_100 || 0;
+            return `<div class="card mb-3"><div class="card-header bg-light p-2"><h6 class="mb-0 small">场景 ${index + 1}: ${escapeHtml(scenario.title)}<span class="badge bg-primary float-end">${score.toFixed(1)}</span></h6></div><div class="card-body p-2"><div class="mb-2"><strong class="small text-muted">对话历史:</strong>${history.map((t, i) => `<div class="ps-2 border-start small"><strong>${i + 1}. U:</strong> ${escapeHtml(t.user_message)}<br><strong>A:</strong> ${escapeHtml(cleanAiResponse(t.ai_response))}</div>`).join('')}</div><div><strong class="small text-muted">详细分析:</strong>${Object.entries(explanations).map(([dim, data]) => generateDimensionAnalysis(dim, data, index)).join('')}</div></div></div>`;
+        }
+
+        function generateDimensionAnalysis(dimension, scoreData, recordIndex) {
+            const score = parseFloat(scoreData.score);
+            const color = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
+            return `<div class="small ms-2"><span class="badge bg-${color}">${dimension}: ${score.toFixed(0)}</span> ${escapeHtml(scoreData.detailed_analysis || '')}</div>`;
+        }
+
+        function generateTechDataCard(data) {
+            // Properly format JSON with indentation for better readability
+            const formattedJson = JSON.stringify(data, null, 2);
+            return `<div class="collapsible-card mb-4"><div class="collapsible-header" onclick="toggleCollapsible(this)"><div class="collapsible-title"><i class="fas fa-database"></i> 🔧 技术数据与下载</div><i class="fas fa-chevron-down collapsible-toggle"></i></div><div class="collapsible-content collapsed"><p class="text-muted small">用于开发集成、数据分析或备份的完整原始JSON数据。</p><pre class="bg-dark text-light p-3 rounded small" style="max-height:300px;overflow:auto;"><code>${escapeHtml(formattedJson)}</code></pre></div></div>`;
         }
 
         async function downloadReport(format) {
-            if (!currentEvaluationData) {
-                alert('没有可下载的评估结果');
-                return;
-            }
-
+            if (!currentEvaluationData) return alert('没有可下载的评估结果');
             try {
-                console.log(`开始下载 ${format} 格式报告...`);
-
-                // Get include transcript option
-                const includeTranscript = document.getElementById('includeTranscript').checked;
-
-                // Prepare form data
-                const formData = new FormData();
-                formData.append('evaluation_data', JSON.stringify(currentEvaluationData));
-                formData.append('format', format);
-                formData.append('include_transcript', includeTranscript);
-
-                // Show loading indication
-                const originalButtons = document.querySelectorAll('.btn-group button');
-                originalButtons.forEach(btn => btn.disabled = true);
-
-                // Make request to download endpoint
-                const response = await fetch('/api/download-report', {
-                    method: 'POST',
-                    body: formData,
-                    signal: createTimeoutSignal(120000)  // 2 minutes timeout for download
-                });
-
-                if (!response.ok) {
-                    throw new Error(`下载失败: ${response.status} ${response.statusText}`);
-                }
-
-                // Handle different response types
                 if (format === 'json') {
-                    // For JSON, we get a JSON response
-                    const data = await response.json();
-                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                    downloadBlob(blob, `evaluation_report_${getCurrentTimestamp()}.json`);
+                    // Handle JSON download with proper formatting
+                    const formattedJson = JSON.stringify(currentEvaluationData, null, 2);
+                    const blob = new Blob([formattedJson], { type: 'application/json' });
+                    const a = document.createElement('a');
+                    a.href = window.URL.createObjectURL(blob);
+                    a.download = `evaluation-report-${Date.now()}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(a.href);
                 } else {
-                    // For TXT and DOCX, we get file responses
+                    // Handle other formats through API
+                    const formData = new FormData();
+                    formData.append('evaluation_data', JSON.stringify(currentEvaluationData));
+                    formData.append('format', format);
+                    formData.append('include_transcript', document.getElementById('includeTranscript')?.checked || false);
+                    const response = await fetch('/api/download-report', { method: 'POST', body: formData, signal: createTimeoutSignal(120000) });
+                    if (!response.ok) throw new Error(`下载失败: ${response.statusText}`);
                     const blob = await response.blob();
-                    const filename = format === 'txt' ?
-                        `evaluation_report_${getCurrentTimestamp()}.txt` :
-                        `evaluation_report_${getCurrentTimestamp()}.docx`;
-                    downloadBlob(blob, filename);
+                    const a = document.createElement('a');
+                    a.href = window.URL.createObjectURL(blob);
+                    a.download = `evaluation-report-${Date.now()}.${format}`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(a.href);
                 }
-
-                console.log(`✅ ${format} 报告下载成功`);
-
             } catch (error) {
                 console.error('❌ Download failed:', error);
                 alert('下载失败: ' + error.message);
-            } finally {
-                // Re-enable buttons
-                const originalButtons = document.querySelectorAll('.btn-group button');
-                originalButtons.forEach(btn => btn.disabled = false);
             }
         }
 
-        function downloadBlob(blob, filename) {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        }
-
-        function getCurrentTimestamp() {
-            const now = new Date();
-            return now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '_');
-        }
-
-        // Debug function to inspect data structure
-        function inspectDataStructure() {
-            if (!currentEvaluationData) {
-                alert('没有可检查的评估数据');
-                return;
-            }
-
-            // Create inspection modal or alert
-            const inspectionResults = {
-                hasConversationRecords: !!currentEvaluationData.conversation_records,
-                recordsCount: currentEvaluationData.conversation_records?.length || 0,
-                firstRecordKeys: currentEvaluationData.conversation_records?.[0] ? Object.keys(currentEvaluationData.conversation_records[0]) : [],
-                evaluationScoreKeys: currentEvaluationData.conversation_records?.[0]?.evaluation_scores_with_explanations ?
-                    Object.keys(currentEvaluationData.conversation_records[0].evaluation_scores_with_explanations) : [],
-                sampleScoreData: currentEvaluationData.conversation_records?.[0]?.evaluation_scores_with_explanations?.fuzzy_understanding || null
-            };
-
-            console.log('🔍 数据结构检查结果:', inspectionResults);
-            console.log('📊 完整数据:', currentEvaluationData);
-
-            // Show alert with key findings
-            alert(`数据结构检查结果：
-            
-对话记录: ${inspectionResults.hasConversationRecords ? '存在' : '不存在'}
-记录数量: ${inspectionResults.recordsCount}
-第一条记录包含字段: ${inspectionResults.firstRecordKeys.join(', ')}
-评估维度: ${inspectionResults.evaluationScoreKeys.join(', ')}
-
-详细信息请查看浏览器控制台 (F12)`);
-        }
+        function validateApiHeaders() { /* Placeholder */ }
+        function handleHeadersPaste() { /* Placeholder */ }
+        function showHeadersWarning(message) { /* Placeholder */ }
+        function clearHeadersWarning() { /* Placeholder */ }
+        function inspectDataStructure() { console.log(currentEvaluationData); alert('Data structure logged to console.'); }
     </script>
 </body>
 

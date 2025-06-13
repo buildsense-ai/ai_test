@@ -54,7 +54,7 @@ CREATE TABLE ai_evaluation_sessions (
     overall_score DECIMAL(3,2) NOT NULL COMMENT '综合评分(1-5)',
     total_scenarios INT NOT NULL DEFAULT 0 COMMENT '总场景数',
     total_conversations INT NOT NULL DEFAULT 0 COMMENT '总对话轮数',
-    evaluation_mode ENUM('manual', 'auto', 'dynamic') NOT NULL COMMENT '评估模式',
+    evaluation_mode VARCHAR(50) NOT NULL DEFAULT 'manual' COMMENT '评估模式',
     evaluation_framework VARCHAR(100) DEFAULT 'AI Agent 3维度评估框架' COMMENT '评估框架',
     requirement_document LONGTEXT COMMENT '需求文档内容',
     ai_agent_config JSON COMMENT 'AI代理配置信息',
